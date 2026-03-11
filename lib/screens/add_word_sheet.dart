@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../db/database_helper.dart';
@@ -17,6 +18,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
   bool _isLoading = false;
   bool _notFound = false;
   bool _isManualEntry = false;
+  bool _networkError = false;
   String? _searchResult;
   String? _phonetic;
   List<String> _existingTags = [];
@@ -70,7 +72,9 @@ class _AddWordSheetState extends State<AddWordSheet> {
         setState(() => _wordSuggestions =
             data.take(6).map((e) => e['word'] as String).toList());
       }
-    } catch (_) {}
+    } catch (_) {
+      // 자동완성 실패는 UX에 치명적이지 않으므로 조용히 무시
+    }
   }
 
   Future<void> _fetchMeaning() async {
@@ -82,6 +86,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
       _searchResult = null;
       _phonetic = null;
       _notFound = false;
+      _networkError = false;
       _wordSuggestions = [];
     });
 
@@ -142,8 +147,12 @@ class _AddWordSheetState extends State<AddWordSheet> {
         _phonetic = phonetic;
       });
       if (canonical != null) _wordController.text = canonical;
+    } on SocketException {
+      if (mounted) setState(() => _networkError = true);
+    } on http.ClientException {
+      if (mounted) setState(() => _networkError = true);
     } catch (e) {
-      setState(() => _notFound = true);
+      if (mounted) setState(() => _notFound = true);
     } finally {
       setState(() => _isLoading = false);
     }
@@ -432,7 +441,53 @@ class _AddWordSheetState extends State<AddWordSheet> {
                 ),
               ),
 
-            if (_notFound) ...[
+            if (_networkError) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFEBEE),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFEF9A9A)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.wifi_off, size: 16, color: Color(0xFFC62828)),
+                        SizedBox(width: 6),
+                        Text(
+                          'Network error',
+                          style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFFC62828)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Check your internet connection and try again.',
+                      style: TextStyle(fontSize: 13, color: Color(0xFF5D4037)),
+                    ),
+                    const SizedBox(height: 8),
+                    GestureDetector(
+                      onTap: _enterManually,
+                      child: const Text(
+                        'Enter the definition yourself →',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF2C3E50),
+                          fontWeight: FontWeight.w600,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (_notFound) ...[
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(14),
