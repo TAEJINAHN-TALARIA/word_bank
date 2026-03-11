@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../db/database_helper.dart';
 import '../models/word.dart';
+import '../services/language_prefs.dart';
 import '../widgets/meaning_display.dart';
 import 'add_word_sheet.dart';
 import 'word_detail_sheet.dart';
@@ -77,6 +78,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  void _showSettings() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => const _SettingsSheet(),
+    );
+  }
+
   void _stopSearching() {
     setState(() {
       _isSearching = false;
@@ -121,6 +133,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     tooltip: 'Random word',
                     onPressed: _showRandomWord,
                   ),
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined),
+                  tooltip: 'Settings',
+                  onPressed: _showSettings,
+                ),
               ],
       ),
       body: _words.isEmpty
@@ -328,6 +345,118 @@ class _WordCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SettingsSheet extends StatefulWidget {
+  const _SettingsSheet();
+
+  @override
+  State<_SettingsSheet> createState() => _SettingsSheetState();
+}
+
+class _SettingsSheetState extends State<_SettingsSheet> {
+  String _definitionLanguage = 'English';
+  String? _exampleLanguage;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final def = await LanguagePrefs.getDefinitionLanguage();
+    final ex = await LanguagePrefs.getExampleLanguage();
+    if (mounted) setState(() {
+      _definitionLanguage = def;
+      _exampleLanguage = ex;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Settings',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 24),
+
+          const Text('Definition language',
+              style: TextStyle(fontSize: 12, color: Colors.black45)),
+          const SizedBox(height: 8),
+          _LangDropdown(
+            value: _definitionLanguage,
+            options: LanguagePrefs.supported,
+            onChanged: (lang) async {
+              setState(() => _definitionLanguage = lang);
+              await LanguagePrefs.setDefinitionLanguage(lang);
+            },
+          ),
+
+          const SizedBox(height: 20),
+
+          const Text('Examples & synonyms language',
+              style: TextStyle(fontSize: 12, color: Colors.black45)),
+          const SizedBox(height: 8),
+          _LangDropdown(
+            value: _exampleLanguage,
+            options: LanguagePrefs.supported,
+            noneLabel: 'Same as word',
+            onChanged: (lang) async {
+              setState(() => _exampleLanguage = lang);
+              await LanguagePrefs.setExampleLanguage(lang);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LangDropdown extends StatelessWidget {
+  final String? value;
+  final List<String> options;
+  final String? noneLabel;
+  final void Function(String?) onChanged;
+
+  const _LangDropdown({
+    required this.value,
+    required this.options,
+    this.noneLabel,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final items = <DropdownMenuItem<String?>>[];
+    if (noneLabel != null) {
+      items.add(DropdownMenuItem<String?>(
+        value: null,
+        child: Text(noneLabel!),
+      ));
+    }
+    for (final opt in options) {
+      items.add(DropdownMenuItem<String?>(
+        value: opt,
+        child: Text(opt),
+      ));
+    }
+
+    return DropdownButtonFormField<String?>(
+      value: value,
+      decoration: const InputDecoration(
+        border: OutlineInputBorder(),
+        isDense: true,
+        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      ),
+      items: items,
+      onChanged: (v) => onChanged(v),
     );
   }
 }
