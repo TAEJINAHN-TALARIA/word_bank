@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../db/database_helper.dart';
 import '../models/word.dart';
+import '../services/api_client.dart';
+import '../services/language_prefs.dart';
 
 class AddWordSheet extends StatefulWidget {
   const AddWordSheet({super.key});
@@ -25,6 +26,9 @@ class _AddWordSheetState extends State<AddWordSheet> {
   List<String> _wordSuggestions = [];
   Timer? _debounce;
 
+  String _definitionLanguage = 'English';
+  String? _exampleLanguage; // null = same as input word
+
   // Manual entry
   String _manualPos = 'noun';
   final _manualMeaningController = TextEditingController();
@@ -41,7 +45,17 @@ class _AddWordSheetState extends State<AddWordSheet> {
   void initState() {
     super.initState();
     _loadExistingTags();
+    _loadLanguagePrefs();
     _manualMeaningController.addListener(() => setState(() {}));
+  }
+
+  Future<void> _loadLanguagePrefs() async {
+    final defLang = await LanguagePrefs.getDefinitionLanguage();
+    final exLang = await LanguagePrefs.getExampleLanguage();
+    if (mounted) setState(() {
+      _definitionLanguage = defLang;
+      _exampleLanguage = exLang;
+    });
   }
 
   Future<void> _loadExistingTags() async {
@@ -91,70 +105,30 @@ class _AddWordSheetState extends State<AddWordSheet> {
     });
 
     try {
-      final url = Uri.parse(
-          'https://api.dictionaryapi.dev/api/v2/entries/en/${Uri.encodeComponent(word)}');
-      final response = await http.get(url);
-
-      if (response.statusCode == 404) {
-        setState(() => _notFound = true);
-        return;
+      final result = await lookupWord(
+        word: word,
+        definitionLanguage: _definitionLanguage,
+        exampleLanguage: _exampleLanguage,
+      );
+      if (mounted) {
+        setState(() {
+          _searchResult = result.meaningText;
+          _phonetic = result.phonetic;
+        });
+        _wordController.text = result.word;
       }
-
-      final data = jsonDecode(response.body) as List;
-      final entry = data.first as Map<String, dynamic>;
-      final meanings = entry['meanings'] as List;
-
-      String? phonetic = entry['phonetic'] as String?;
-      if (phonetic == null) {
-        final phonetics = entry['phonetics'] as List?;
-        if (phonetics != null) {
-          for (final p in phonetics) {
-            final text = (p as Map<String, dynamic>)['text'] as String?;
-            if (text != null && text.isNotEmpty) {
-              phonetic = text;
-              break;
-            }
-          }
-        }
-      }
-
-      final buffer = StringBuffer();
-      for (final meaning in meanings.take(2)) {
-        final pos = meaning['partOfSpeech'] as String;
-        final definitions = meaning['definitions'] as List;
-        final firstDef = definitions.first as Map<String, dynamic>;
-
-        buffer.writeln('[$pos]');
-        buffer.writeln(firstDef['definition']);
-
-        if (firstDef['example'] != null) {
-          buffer.writeln();
-          buffer.writeln('Example: ${firstDef['example']}');
-        }
-
-        final synonyms = (meaning['synonyms'] as List?)?.take(3).toList();
-        if (synonyms != null && synonyms.isNotEmpty) {
-          buffer.writeln();
-          buffer.writeln('Synonyms: ${synonyms.join(', ')}');
-        }
-
-        buffer.writeln();
-      }
-
-      final canonical = entry['word'] as String?;
-      setState(() {
-        _searchResult = buffer.toString().trim();
-        _phonetic = phonetic;
-      });
-      if (canonical != null) _wordController.text = canonical;
+    } on LookupNotFoundException {
+      if (mounted) setState(() => _notFound = true);
+    } on LookupRateLimitException {
+      if (mounted) setState(() => _notFound = true);
     } on SocketException {
       if (mounted) setState(() => _networkError = true);
     } on http.ClientException {
       if (mounted) setState(() => _networkError = true);
-    } catch (e) {
-      if (mounted) setState(() => _notFound = true);
+    } catch (_) {
+      if (mounted) setState(() => _networkError = true);
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -584,6 +558,19 @@ class _AddWordSheetState extends State<AddWordSheet> {
               ),
 
             const SizedBox(height: 16),
+            _LanguageRow(
+              definitionLanguage: _definitionLanguage,
+              exampleLanguage: _exampleLanguage,
+              onDefinitionChanged: (lang) async {
+                setState(() => _definitionLanguage = lang);
+                await LanguagePrefs.setDefinitionLanguage(lang);
+              },
+              onExampleChanged: (lang) async {
+                setState(() => _exampleLanguage = lang);
+                await LanguagePrefs.setExampleLanguage(lang);
+              },
+            ),
+            const SizedBox(height: 12),
             FilledButton(
               onPressed: _isLoading ? null : _fetchMeaning,
               style: FilledButton.styleFrom(
@@ -622,6 +609,48 @@ class _AddWordSheetState extends State<AddWordSheet> {
         ],
       ),
     );
+  }
+
+  Future<void> _showLanguagePicker({
+    required String title,
+    required String? current,
+    required List<String?> options,
+    required List<String> labels,
+    required void Function(String?) onSelected,
+  }) async {
+    final result = await showModalBottomSheet<String?>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+              child: Text(title,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            const Divider(height: 1),
+            ...List.generate(options.length, (i) {
+              final isSelected = options[i] == current;
+              return ListTile(
+                title: Text(labels[i]),
+                trailing:
+                    isSelected ? const Icon(Icons.check, size: 20) : null,
+                onTap: () => Navigator.pop(ctx, options[i] ?? '\x00'),
+              );
+            }),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (result != null) {
+      onSelected(result == '\x00' ? null : result);
+    }
   }
 
   List<Widget> _tagSection() {
@@ -694,5 +723,149 @@ class _AddWordSheetState extends State<AddWordSheet> {
         );
       }(),
     ];
+  }
+}
+
+/// Compact row showing the current definition + example language with tap-to-change.
+class _LanguageRow extends StatelessWidget {
+  final String definitionLanguage;
+  final String? exampleLanguage;
+  final void Function(String) onDefinitionChanged;
+  final void Function(String?) onExampleChanged;
+
+  const _LanguageRow({
+    required this.definitionLanguage,
+    required this.exampleLanguage,
+    required this.onDefinitionChanged,
+    required this.onExampleChanged,
+  });
+
+  void _pickDefinitionLanguage(BuildContext context) async {
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 20, 24, 8),
+              child: Text('Definition language',
+                  style: TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            const Divider(height: 1),
+            ...LanguagePrefs.supported.map((lang) => ListTile(
+                  title: Text(lang),
+                  trailing: lang == definitionLanguage
+                      ? const Icon(Icons.check, size: 20)
+                      : null,
+                  onTap: () => Navigator.pop(ctx, lang),
+                )),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (result != null) onDefinitionChanged(result);
+  }
+
+  void _pickExampleLanguage(BuildContext context) async {
+    final options = <String?>[null, ...LanguagePrefs.supported];
+    final labels = ['Same as word', ...LanguagePrefs.supported];
+
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(24, 20, 24, 8),
+              child: Text('Example & synonyms language',
+                  style: TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+            const Divider(height: 1),
+            ...List.generate(options.length, (i) {
+              final isSelected = options[i] == exampleLanguage;
+              return ListTile(
+                title: Text(labels[i]),
+                trailing: isSelected
+                    ? const Icon(Icons.check, size: 20)
+                    : null,
+                onTap: () =>
+                    Navigator.pop(ctx, options[i] ?? '\x00'),
+              );
+            }),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (result != null) {
+      onExampleChanged(result == '\x00' ? null : result);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final exLabel = exampleLanguage ?? 'Same as word';
+    return Row(
+      children: [
+        const Icon(Icons.translate, size: 14, color: Colors.black38),
+        const SizedBox(width: 6),
+        GestureDetector(
+          onTap: () => _pickDefinitionLanguage(context),
+          child: _LangChip(label: definitionLanguage, hint: 'Definition'),
+        ),
+        const SizedBox(width: 6),
+        const Text('·', style: TextStyle(color: Colors.black38)),
+        const SizedBox(width: 6),
+        GestureDetector(
+          onTap: () => _pickExampleLanguage(context),
+          child: _LangChip(label: exLabel, hint: 'Examples'),
+        ),
+      ],
+    );
+  }
+}
+
+class _LangChip extends StatelessWidget {
+  final String label;
+  final String hint;
+
+  const _LangChip({required this.label, required this.hint});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F3F5),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFCDD5DE)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF2C3E50),
+                fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(width: 4),
+          const Icon(Icons.arrow_drop_down,
+              size: 16, color: Color(0xFF2C3E50)),
+        ],
+      ),
+    );
   }
 }

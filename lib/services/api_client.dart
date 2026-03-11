@@ -1,0 +1,98 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+/// Base URL of the Word Bank backend.
+/// - Android emulator  → http://10.0.2.2:3000
+/// - iOS simulator     → http://localhost:3000
+/// - Physical device   → http://<your-local-IP>:3000
+/// - Production        → https://your-deployed-server.com
+const kBackendBaseUrl = 'http://10.0.2.2:3000';
+
+class LookupResult {
+  final String word;
+  final String? phonetic;
+  final String meaningText; // formatted string for storage
+
+  const LookupResult({
+    required this.word,
+    this.phonetic,
+    required this.meaningText,
+  });
+}
+
+/// Calls the backend /api/lookup and returns a [LookupResult].
+///
+/// Throws [LookupNotFoundException] if the word is not found.
+/// Throws [http.ClientException] or [SocketException] on network errors.
+/// Throws [Exception] on unexpected server errors.
+Future<LookupResult> lookupWord({
+  required String word,
+  required String definitionLanguage,
+  String? exampleLanguage,
+}) async {
+  final uri = Uri.parse('$kBackendBaseUrl/api/lookup');
+  final body = <String, String>{
+    'word': word,
+    'language': definitionLanguage,
+    if (exampleLanguage != null) 'exampleLanguage': exampleLanguage,
+  };
+
+  final response = await http
+      .post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      )
+      .timeout(const Duration(seconds: 15));
+
+  final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+  if (response.statusCode == 200) {
+    if (data['error'] == 'not_found') {
+      throw LookupNotFoundException();
+    }
+    return LookupResult(
+      word: data['word'] as String? ?? word,
+      phonetic: data['phonetic'] as String?,
+      meaningText: _formatMeanings(data),
+    );
+  }
+
+  if (response.statusCode == 429) {
+    throw LookupRateLimitException();
+  }
+
+  throw Exception('Server error ${response.statusCode}');
+}
+
+String _formatMeanings(Map<String, dynamic> data) {
+  final meanings = data['meanings'] as List? ?? [];
+  final buffer = StringBuffer();
+  for (final meaning in meanings) {
+    final m = meaning as Map<String, dynamic>;
+    final pos = m['pos'] as String? ?? '';
+    final definition = m['definition'] as String? ?? '';
+    final example = m['example'] as String?;
+    final synonyms = (m['synonyms'] as List?)?.cast<String>() ?? [];
+
+    buffer.writeln('[$pos]');
+    buffer.writeln(definition);
+
+    if (example != null && example.isNotEmpty) {
+      buffer.writeln();
+      buffer.writeln('Example: $example');
+    }
+
+    if (synonyms.isNotEmpty) {
+      buffer.writeln();
+      buffer.writeln('Synonyms: ${synonyms.join(', ')}');
+    }
+
+    buffer.writeln();
+  }
+  return buffer.toString().trim();
+}
+
+class LookupNotFoundException implements Exception {}
+
+class LookupRateLimitException implements Exception {}
