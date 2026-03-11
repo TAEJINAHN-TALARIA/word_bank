@@ -388,6 +388,8 @@ app.post('/api/verify-purchase', async (req, res) => {
         platform,
         productId,
         purchasedAt: admin.firestore.FieldValue.serverTimestamp(),
+        // Android purchaseToken 저장: 향후 환불/구독 취소 감지에 사용
+        ...(platform === 'android' && { purchaseToken: receiptData }),
       },
     },
     { merge: true },
