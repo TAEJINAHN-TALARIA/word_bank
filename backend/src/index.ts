@@ -43,7 +43,11 @@ app.post('/api/lookup', async (req, res) => {
     return res.status(429).json({ error: 'rate_limit' });
   }
 
-  const { word, language } = req.body as { word?: unknown; language?: unknown };
+  const { word, language, exampleLanguage } = req.body as {
+    word?: unknown;
+    language?: unknown;
+    exampleLanguage?: unknown;
+  };
 
   if (!word || typeof word !== 'string' || word.trim().length === 0) {
     return res.status(400).json({ error: 'invalid_request', message: 'word is required' });
@@ -51,8 +55,13 @@ app.post('/api/lookup', async (req, res) => {
   if (!language || typeof language !== 'string' || !SUPPORTED_LANGUAGES.has(language)) {
     return res.status(400).json({ error: 'invalid_request', message: 'invalid language' });
   }
+  if (exampleLanguage !== undefined && (typeof exampleLanguage !== 'string' || !SUPPORTED_LANGUAGES.has(exampleLanguage))) {
+    return res.status(400).json({ error: 'invalid_request', message: 'invalid exampleLanguage' });
+  }
 
   const trimmedWord = word.trim().slice(0, 100);
+  // exampleLanguage 미지정 시 입력 단어와 같은 언어로 자동 처리
+  const exampleLang = typeof exampleLanguage === 'string' ? exampleLanguage : 'the same language as the input word';
 
   try {
     const response = await client.messages.create({
@@ -65,14 +74,15 @@ app.post('/api/lookup', async (req, res) => {
         {
           role: 'user',
           content:
-            `Look up the word or phrase: "${trimmedWord}"\n` +
-            `Provide the definition in ${language}.\n\n` +
+            `Look up the word or phrase: "${trimmedWord}"\n\n` +
             `If the word exists, respond with this JSON:\n` +
-            `{"word":"canonical spelling","phonetic":"IPA notation or null","meanings":[{"pos":"part of speech","definition":"in ${language}","example":"example sentence or null","synonyms":["synonym1","synonym2"]}]}\n\n` +
+            `{"word":"canonical spelling","phonetic":"IPA notation or null","meanings":[{"pos":"part of speech","definition":"...","example":"...or null","synonyms":["..."]}]}\n\n` +
             `Rules:\n` +
             `- Detect the input word's language automatically\n` +
             `- Provide up to 2 meanings\n` +
-            `- synonyms array: up to 3 items, in ${language}, can be empty []\n` +
+            `- definition: write in ${language}\n` +
+            `- example: write in ${exampleLang}, or null if unavailable\n` +
+            `- synonyms: write in ${exampleLang}, up to 3 items, can be empty []\n` +
             `- If the word/phrase does not exist, respond with: {"error":"not_found"}`,
         },
       ],
