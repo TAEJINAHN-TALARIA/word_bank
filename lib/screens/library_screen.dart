@@ -1,10 +1,14 @@
 import 'dart:math';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../db/database_helper.dart';
 import '../models/word.dart';
+import '../services/auth_service.dart';
 import '../services/language_prefs.dart';
+import '../services/subscription_service.dart';
 import '../widgets/meaning_display.dart';
 import 'add_word_sheet.dart';
+import 'paywall_screen.dart';
 import 'word_detail_sheet.dart';
 
 class LibraryScreen extends StatefulWidget {
@@ -25,6 +29,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void initState() {
     super.initState();
     _loadWords();
+    _refreshSubscription();
+  }
+
+  Future<void> _refreshSubscription() async {
+    await SubscriptionService.refreshStatus();
+    if (mounted) setState(() {});
   }
 
   @override
@@ -89,6 +99,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  void _showAccountSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => _AccountSheet(onRefresh: _refreshSubscription),
+    );
+  }
+
   void _stopSearching() {
     setState(() {
       _isSearching = false;
@@ -138,10 +159,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   tooltip: 'Settings',
                   onPressed: _showSettings,
                 ),
+                if (FirebaseAuth.instance.currentUser != null)
+                  IconButton(
+                    icon: const Icon(Icons.account_circle_outlined),
+                    tooltip: 'Account',
+                    onPressed: _showAccountSheet,
+                  ),
               ],
       ),
-      body: _words.isEmpty
-          ? const Center(
+      body: Column(
+        children: [
+          _UsageBanner(onUpgrade: () async {
+            final upgraded = await Navigator.of(context).push<bool>(
+              MaterialPageRoute(
+                builder: (_) => const PaywallScreen(),
+                fullscreenDialog: true,
+              ),
+            );
+            if (upgraded == true) _refreshSubscription();
+          }),
+          Expanded(child: _buildBody()),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _showAddWordSheet,
+        icon: const Icon(Icons.add),
+        label: const Text('Add Word'),
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    return _words.isEmpty
+        ? const Center(
               child: Padding(
                 padding: EdgeInsets.all(24.0),
                 child: Text(
@@ -218,13 +268,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         ),
                 ),
               ],
-            ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddWordSheet,
-        icon: const Icon(Icons.add),
-        label: const Text('Add Word'),
-      ),
-    );
+            );
   }
 }
 
@@ -457,6 +501,217 @@ class _LangDropdown extends StatelessWidget {
       ),
       items: items,
       onChanged: (v) => onChanged(v),
+    );
+  }
+}
+
+// ─── 사용량 배너 ───
+class _UsageBanner extends StatelessWidget {
+  final VoidCallback onUpgrade;
+
+  const _UsageBanner({required this.onUpgrade});
+
+  @override
+  Widget build(BuildContext context) {
+    if (SubscriptionService.isPremium) return const SizedBox.shrink();
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return const SizedBox.shrink();
+
+    final used = SubscriptionService.monthlyCount;
+    final limit = SubscriptionService.freeLimit;
+    final remaining = SubscriptionService.remaining;
+    final isNearLimit = remaining <= 10;
+    final isAtLimit = remaining == 0;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      color: isAtLimit
+          ? Colors.red.shade50
+          : isNearLimit
+              ? Colors.orange.shade50
+              : Colors.transparent,
+      child: Row(
+        children: [
+          Icon(
+            isAtLimit ? Icons.block : Icons.bar_chart,
+            size: 16,
+            color: isAtLimit
+                ? Colors.red
+                : isNearLimit
+                    ? Colors.orange
+                    : Colors.black45,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              isAtLimit
+                  ? '이번 달 무료 조회 한도 도달 ($used/$limit)'
+                  : '이번 달 AI 조회: $used/$limit',
+              style: TextStyle(
+                fontSize: 12,
+                color: isAtLimit
+                    ? Colors.red
+                    : isNearLimit
+                        ? Colors.orange.shade800
+                        : Colors.black54,
+              ),
+            ),
+          ),
+          if (isNearLimit || isAtLimit)
+            GestureDetector(
+              onTap: onUpgrade,
+              child: Text(
+                'Premium 업그레이드',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  color: isAtLimit ? Colors.red : Colors.orange.shade800,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── 계정 시트 ───
+class _AccountSheet extends StatefulWidget {
+  final VoidCallback onRefresh;
+
+  const _AccountSheet({required this.onRefresh});
+
+  @override
+  State<_AccountSheet> createState() => _AccountSheetState();
+}
+
+class _AccountSheetState extends State<_AccountSheet> {
+  bool _isLoading = false;
+
+  Future<void> _signOut() async {
+    setState(() => _isLoading = true);
+    await AuthService.signOut();
+    if (mounted) Navigator.of(context).pop();
+    widget.onRefresh();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+    final isPremium = SubscriptionService.isPremium;
+    final used = SubscriptionService.monthlyCount;
+    final limit = SubscriptionService.freeLimit;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('계정',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundColor: const Color(0xFF2C3E50),
+                child: Text(
+                  (user?.displayName?.isNotEmpty == true
+                          ? user!.displayName![0]
+                          : user?.email?[0] ?? '?')
+                      .toUpperCase(),
+                  style: const TextStyle(color: Colors.white, fontSize: 18),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (user?.displayName?.isNotEmpty == true)
+                      Text(user!.displayName!,
+                          style: const TextStyle(fontWeight: FontWeight.w600)),
+                    if (user?.email != null)
+                      Text(user!.email!,
+                          style: const TextStyle(
+                              fontSize: 13, color: Colors.black54)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F3F5),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isPremium ? 'Premium 플랜' : '무료 플랜',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: isPremium
+                            ? const Color(0xFFFFB300)
+                            : const Color(0xFF2C3E50),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isPremium
+                          ? '무제한 AI 조회'
+                          : '이번 달 조회: $used / $limit',
+                      style: const TextStyle(
+                          fontSize: 13, color: Colors.black54),
+                    ),
+                  ],
+                ),
+                if (!isPremium)
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const PaywallScreen(),
+                        fullscreenDialog: true,
+                      ));
+                    },
+                    child: const Text('업그레이드'),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: _isLoading ? null : _signOut,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red,
+                side: const BorderSide(color: Colors.red),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+              child: _isLoading
+                  ? const SizedBox(
+                      height: 18,
+                      width: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('로그아웃'),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
