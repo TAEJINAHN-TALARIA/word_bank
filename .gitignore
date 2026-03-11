@@ -1,15 +1,3 @@
-# Miscellaneous
-*.class
-*.log
-*.pyc
-*.swp
-.DS_Store
-.atom/
-.buildlog/
-.history
-.svn/
-migrate_working_dir/
-
 # IntelliJ related
 *.iml
 *.ipr
@@ -28,6 +16,11 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+
+# Firebase 네이티브 설정 (실제 키 포함, 커밋 방지)
+# firebase_options.dart는 이미 플레이스홀더로 추적 중 → 실제 값 채운 후 git rm --cached 권장
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
 
 # Symbolication related
 app.*.symbols
