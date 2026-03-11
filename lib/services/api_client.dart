@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
 /// Base URL of the Word Bank backend.
@@ -23,6 +24,7 @@ class LookupResult {
 /// Calls the backend /api/lookup and returns a [LookupResult].
 ///
 /// Throws [LookupNotFoundException] if the word is not found.
+/// Throws [LookupQuotaExceededException] if the free monthly limit is reached.
 /// Throws [http.ClientException] or [SocketException] on network errors.
 /// Throws [Exception] on unexpected server errors.
 Future<LookupResult> lookupWord({
@@ -30,6 +32,8 @@ Future<LookupResult> lookupWord({
   required String definitionLanguage,
   String? exampleLanguage,
 }) async {
+  final idToken = await FirebaseAuth.instance.currentUser?.getIdToken();
+
   final uri = Uri.parse('$kBackendBaseUrl/api/lookup');
   final body = <String, String>{
     'word': word,
@@ -37,12 +41,13 @@ Future<LookupResult> lookupWord({
     if (exampleLanguage != null) 'exampleLanguage': exampleLanguage,
   };
 
+  final headers = <String, String>{
+    'Content-Type': 'application/json',
+    if (idToken != null) 'Authorization': 'Bearer $idToken',
+  };
+
   final response = await http
-      .post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(body),
-      )
+      .post(uri, headers: headers, body: jsonEncode(body))
       .timeout(const Duration(seconds: 15));
 
   final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -59,6 +64,12 @@ Future<LookupResult> lookupWord({
   }
 
   if (response.statusCode == 429) {
+    if (data['error'] == 'quota_exceeded') {
+      throw LookupQuotaExceededException(
+        count: data['count'] as int? ?? 0,
+        limit: data['limit'] as int? ?? 50,
+      );
+    }
     throw LookupRateLimitException();
   }
 
@@ -96,3 +107,9 @@ String _formatMeanings(Map<String, dynamic> data) {
 class LookupNotFoundException implements Exception {}
 
 class LookupRateLimitException implements Exception {}
+
+class LookupQuotaExceededException implements Exception {
+  final int count;
+  final int limit;
+  const LookupQuotaExceededException({required this.count, required this.limit});
+}

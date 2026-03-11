@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -6,6 +7,7 @@ import '../db/database_helper.dart';
 import '../models/word.dart';
 import '../services/api_client.dart';
 import '../services/language_prefs.dart';
+import 'paywall_screen.dart';
 
 class AddWordSheet extends StatefulWidget {
   const AddWordSheet({super.key});
@@ -121,6 +123,18 @@ class _AddWordSheetState extends State<AddWordSheet> {
       if (mounted) setState(() => _notFound = true);
     } on LookupRateLimitException {
       if (mounted) setState(() => _notFound = true);
+    } on LookupQuotaExceededException {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        Navigator.of(context).pop();
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const PaywallScreen(),
+            fullscreenDialog: true,
+          ),
+        );
+      }
+      return;
     } on SocketException {
       if (mounted) setState(() => _networkError = true);
     } on http.ClientException {
