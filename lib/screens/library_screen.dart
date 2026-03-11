@@ -30,6 +30,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
     super.initState();
     _loadWords();
     _refreshSubscription();
+    SubscriptionService.verificationError.addListener(_onVerificationError);
+  }
+
+  void _onVerificationError() {
+    final msg = SubscriptionService.verificationError.value;
+    if (msg != null && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(msg),
+          backgroundColor: Colors.red[700],
+          duration: const Duration(seconds: 6),
+          action: SnackBarAction(
+            label: '구매 복원',
+            textColor: Colors.white,
+            onPressed: () async {
+              await SubscriptionService.restorePurchases();
+              await SubscriptionService.refreshStatus();
+              if (mounted) setState(() {});
+            },
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _refreshSubscription() async {
@@ -39,6 +62,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   void dispose() {
+    SubscriptionService.verificationError.removeListener(_onVerificationError);
     _searchController.dispose();
     super.dispose();
   }

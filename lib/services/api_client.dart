@@ -3,11 +3,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
 /// Base URL of the Word Bank backend.
-/// - Android emulator  → http://10.0.2.2:3000
-/// - iOS simulator     → http://localhost:3000
-/// - Physical device   → http://<your-local-IP>:3000
-/// - Production        → https://your-deployed-server.com
-const kBackendBaseUrl = 'http://10.0.2.2:3000';
+/// 빌드 시 --dart-define=BACKEND_URL=https://your-server.com 으로 지정하세요.
+/// - Android 에뮬레이터 (기본값): http://10.0.2.2:3000
+/// - iOS 시뮬레이터:              flutter run --dart-define=BACKEND_URL=http://localhost:3000
+/// - 프로덕션:                    flutter build apk --dart-define=BACKEND_URL=https://your-server.com
+const kBackendBaseUrl = String.fromEnvironment(
+  'BACKEND_URL',
+  defaultValue: 'http://10.0.2.2:3000',
+);
 
 class LookupResult {
   final String word;
