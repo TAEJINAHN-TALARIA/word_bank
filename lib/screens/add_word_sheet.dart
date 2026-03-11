@@ -180,9 +180,39 @@ class _AddWordSheetState extends State<AddWordSheet> {
     _tagController.clear();
   }
 
+  Future<bool> _confirmSaveDespiteDuplicate(String wordText) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Already in Word Bank'),
+            content: Text(
+                '"$wordText" is already saved. Save another copy anyway?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFF2C3E50)),
+                child: const Text('Save anyway'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
   Future<void> _saveWord() async {
+    final wordText = _wordController.text.trim();
+    if (await DatabaseHelper.instance.wordExists(wordText)) {
+      if (!mounted) return;
+      final confirmed = await _confirmSaveDespiteDuplicate(wordText);
+      if (!confirmed) return;
+    }
     final word = Word(
-      word: _wordController.text.trim(),
+      word: wordText,
       phonetic: _phonetic,
       meaning: _searchResult!,
       context: _contextController.text.trim().isNotEmpty
@@ -198,6 +228,13 @@ class _AddWordSheetState extends State<AddWordSheet> {
     final meaning = _manualMeaningController.text.trim();
     if (meaning.isEmpty) return;
 
+    final wordText = _wordController.text.trim();
+    if (await DatabaseHelper.instance.wordExists(wordText)) {
+      if (!mounted) return;
+      final confirmed = await _confirmSaveDespiteDuplicate(wordText);
+      if (!confirmed) return;
+    }
+
     final buffer = StringBuffer();
     buffer.writeln('[$_manualPos]');
     buffer.writeln(meaning);
@@ -208,7 +245,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
     }
 
     final word = Word(
-      word: _wordController.text.trim(),
+      word: wordText,
       meaning: buffer.toString().trim(),
       context: _contextController.text.trim().isNotEmpty
           ? _contextController.text.trim()

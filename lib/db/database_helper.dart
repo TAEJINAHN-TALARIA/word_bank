@@ -53,6 +53,14 @@ class DatabaseHelper {
     return words;
   }
 
+  Future<bool> wordExists(String word) async {
+    final box = await _openBox;
+    return box.values.any((v) {
+      final map = Map<String, dynamic>.from(v as Map);
+      return (map['word'] as String).toLowerCase() == word.toLowerCase();
+    });
+  }
+
   Future<void> deleteWord(int key) async {
     final box = await _openBox;
     await box.delete(key);
