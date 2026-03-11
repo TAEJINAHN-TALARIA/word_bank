@@ -1,49 +1,58 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:in_app_purchase/in_app_purchase.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
 import 'api_client.dart';
 import 'auth_service.dart';
 
-enum _VerifyResult { success, transientFailure, permanentFailure }
-
 class SubscriptionService {
-  static const String monthlyProductId = 'word_bank_premium_monthly';
+  /// RevenueCat에서 생성한 Entitlement 식별자 (대시보드와 동일해야 함)
+  static const String _entitlementId = 'premium';
   static const int freeLimit = 50;
 
-  static StreamSubscription<List<PurchaseDetails>>? _purchaseSubscription;
   static bool _isPremium = false;
   static int _monthlyCount = 0;
 
   static bool get isPremium => _isPremium;
   static int get monthlyCount => _monthlyCount;
-  static int get remaining =>
-      _isPremium ? -1 : (freeLimit - _monthlyCount).clamp(0, freeLimit);
 
-  /// 구매 검증 실패 시 사용자에게 표시할 오류 메시지.
-  /// null이면 오류 없음.
-  static final ValueNotifier<String?> verificationError = ValueNotifier(null);
-
+  /// RevenueCat 초기화. Firebase 초기화 이후 호출.
   static Future<void> initialize() async {
-    final isAvailable = await InAppPurchase.instance.isAvailable();
-    if (!isAvailable) {
-      debugPrint('In-App Purchase not available on this device');
+    final apiKey = Platform.isIOS ? kRevenueCatIosKey : kRevenueCatAndroidKey;
+    if (apiKey.startsWith('YOUR_')) {
+      debugPrint('RevenueCat API key not configured — skipping IAP setup');
       return;
     }
 
-    _purchaseSubscription = InAppPurchase.instance.purchaseStream.listen(
-      _handlePurchaseUpdate,
-      onDone: () => _purchaseSubscription?.cancel(),
-      onError: (Object error) => debugPrint('IAP stream error: $error'),
-    );
+    await Purchases.setLogLevel(kDebugMode ? LogLevel.debug : LogLevel.error);
+    await Purchases.configure(PurchasesConfiguration(apiKey));
+
+    // Firebase UID로 RevenueCat 사용자를 식별
+    final uid = AuthService.currentUser?.uid;
+    if (uid != null) {
+      await Purchases.logIn(uid);
+    }
 
     await refreshStatus();
   }
 
-  /// 서버에서 현재 사용량 및 구독 상태를 새로고침합니다.
+  /// 서버(Firestore)에서 구독 상태와 사용량을 새로고침.
+  ///
+  /// RevenueCat 웹훅이 Firestore를 업데이트하므로,
+  /// 서버가 항상 최신·정확한 상태를 가짐.
   static Future<void> refreshStatus() async {
+    // 로그인 상태가 바뀐 경우 RC 사용자 동기화
+    final uid = AuthService.currentUser?.uid;
+    if (uid != null) {
+      try {
+        final info = await Purchases.getCustomerInfo();
+        if (info.originalAppUserId != uid) {
+          await Purchases.logIn(uid);
+        }
+      } catch (_) {}
+    }
+
     final token = await AuthService.getIdToken();
     if (token == null) return;
 
@@ -64,96 +73,42 @@ class SubscriptionService {
     }
   }
 
+  /// 월간 구독 구매.
+  ///
+  /// RevenueCat SDK가 영수증 검증, 스토어 통신을 모두 처리.
+  /// 사용자 취소 시: [PurchasesException] (code: purchaseCancelledError) 발생.
+  /// 네트워크/스토어 오류 시: [PurchasesException] 발생.
   static Future<void> purchase() async {
-    final result = await InAppPurchase.instance
-        .queryProductDetails({monthlyProductId});
-    if (result.productDetails.isEmpty) {
-      throw Exception('Product "$monthlyProductId" not found in store');
+    final offerings = await Purchases.getOfferings();
+    final monthly = offerings.current?.monthly;
+    if (monthly == null) throw Exception('No monthly package available');
+
+    final customerInfo = await Purchases.purchasePackage(monthly);
+
+    // RevenueCat이 검증까지 완료한 시점이므로 즉시 반영
+    if (customerInfo.entitlements.active.containsKey(_entitlementId)) {
+      _isPremium = true;
+      _monthlyCount = 0;
     }
-    final purchaseParam = PurchaseParam(
-      productDetails: result.productDetails.first,
-    );
-    await InAppPurchase.instance.buyNonConsumable(
-      purchaseParam: purchaseParam,
-    );
   }
 
+  /// 이전 구매 복원.
   static Future<void> restorePurchases() async {
-    await InAppPurchase.instance.restorePurchases();
-  }
-
-  static Future<void> _handlePurchaseUpdate(
-    List<PurchaseDetails> purchases,
-  ) async {
-    for (final purchase in purchases) {
-      if (purchase.status == PurchaseStatus.purchased ||
-          purchase.status == PurchaseStatus.restored) {
-        final result = await _verifyAndActivate(purchase);
-        if (result != _VerifyResult.transientFailure) {
-          // 일시적 실패 시에는 completePurchase를 호출하지 않아
-          // 스토어가 다음 앱 실행 시 트랜잭션을 재전달하도록 합니다.
-          await InAppPurchase.instance.completePurchase(purchase);
-        }
-      } else if (purchase.status == PurchaseStatus.error) {
-        debugPrint('Purchase error: ${purchase.error}');
-        if (purchase.pendingCompletePurchase) {
-          await InAppPurchase.instance.completePurchase(purchase);
-        }
-      }
+    final customerInfo = await Purchases.restorePurchases();
+    if (customerInfo.entitlements.active.containsKey(_entitlementId)) {
+      _isPremium = true;
+      _monthlyCount = 0;
     }
   }
 
-  static Future<_VerifyResult> _verifyAndActivate(
-    PurchaseDetails purchase,
-  ) async {
-    final token = await AuthService.getIdToken();
-    if (token == null) {
-      verificationError.value = '로그인이 필요합니다. 다시 로그인 후 구매를 복원해 주세요.';
-      return _VerifyResult.transientFailure;
-    }
-
+  /// 로그아웃 시 RevenueCat 사용자 세션 종료.
+  static Future<void> logOut() async {
     try {
-      final uri = Uri.parse('$kBackendBaseUrl/api/verify-purchase');
-      final response = await http.post(
-        uri,
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'platform': Platform.isIOS ? 'ios' : 'android',
-          'receiptData': purchase.verificationData.serverVerificationData,
-          'productId': purchase.productID,
-        }),
-      ).timeout(const Duration(seconds: 15));
-
-      if (response.statusCode == 200) {
-        _isPremium = true;
-        _monthlyCount = 0;
-        verificationError.value = null;
-        return _VerifyResult.success;
-      }
-
-      // 400: 유효하지 않은 영수증 (영구 실패) → completePurchase로 트랜잭션 정리
-      if (response.statusCode == 400) {
-        verificationError.value = '유효하지 않은 구매입니다. 고객센터에 문의해 주세요.';
-        return _VerifyResult.permanentFailure;
-      }
-
-      // 5xx 등 서버 일시 오류 → completePurchase 생략, 다음 실행 시 재시도
-      verificationError.value = '구매 확인에 실패했습니다. 앱을 재시작하거나 구매 복원을 시도해 주세요.';
-      return _VerifyResult.transientFailure;
-    } on TimeoutException {
-      verificationError.value = '서버 응답 시간 초과. 앱을 재시작하거나 구매 복원을 시도해 주세요.';
-      return _VerifyResult.transientFailure;
+      await Purchases.logOut();
     } catch (e) {
-      debugPrint('Purchase verification failed: $e');
-      verificationError.value = '구매 확인에 실패했습니다. 앱을 재시작하거나 구매 복원을 시도해 주세요.';
-      return _VerifyResult.transientFailure;
+      debugPrint('RevenueCat logout failed: $e');
     }
-  }
-
-  static void dispose() {
-    _purchaseSubscription?.cancel();
+    _isPremium = false;
+    _monthlyCount = 0;
   }
 }

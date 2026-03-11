@@ -12,6 +12,19 @@ const kBackendBaseUrl = String.fromEnvironment(
   defaultValue: 'http://10.0.2.2:3000',
 );
 
+/// RevenueCat API 키 (공개 키 - 앱 바이너리에 포함되는 값, 시크릿 아님)
+/// RevenueCat Dashboard → Project Settings → API Keys 에서 확인
+/// 빌드 시: --dart-define=REVENUECAT_IOS_API_KEY=appl_xxx
+///          --dart-define=REVENUECAT_ANDROID_API_KEY=goog_xxx
+const kRevenueCatIosKey = String.fromEnvironment(
+  'REVENUECAT_IOS_API_KEY',
+  defaultValue: 'YOUR_REVENUECAT_IOS_API_KEY',
+);
+const kRevenueCatAndroidKey = String.fromEnvironment(
+  'REVENUECAT_ANDROID_API_KEY',
+  defaultValue: 'YOUR_REVENUECAT_ANDROID_API_KEY',
+);
+
 class LookupResult {
   final String word;
   final String? phonetic;

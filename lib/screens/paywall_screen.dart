@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
 import '../services/subscription_service.dart';
 
 class PaywallScreen extends StatefulWidget {
@@ -20,6 +21,12 @@ class _PaywallScreenState extends State<PaywallScreen> {
     try {
       await SubscriptionService.purchase();
       if (mounted) Navigator.of(context).pop(true);
+    } on PurchasesException catch (e) {
+      if (e.code == PurchasesErrorCode.purchaseCancelledError) {
+        // 사용자가 직접 취소 — 오류 메시지 불필요
+      } else if (mounted) {
+        setState(() => _error = '구독 처리 중 오류가 발생했습니다.\n다시 시도해 주세요.');
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _error = '구독 처리 중 오류가 발생했습니다.\n다시 시도해 주세요.');

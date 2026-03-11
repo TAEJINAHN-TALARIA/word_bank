@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import Anthropic from '@anthropic-ai/sdk';
 import admin from 'firebase-admin';
-import crypto from 'crypto';
 
 const app = express();
 const client = new Anthropic();
@@ -249,153 +248,96 @@ app.get('/api/usage', async (req, res) => {
   return res.json({ count, limit: FREE_MONTHLY_LIMIT, isPremium: false });
 });
 
-// ─── Apple IAP 영수증 검증 ───
-async function verifyAppleReceipt(
-  receiptData: string,
-): Promise<{ valid: boolean; expiresAt: Date | null }> {
-  const sharedSecret = process.env.APPLE_IAP_SHARED_SECRET;
-  if (!sharedSecret) throw new Error('APPLE_IAP_SHARED_SECRET not configured');
+// ─── RevenueCat 웹훅 이벤트 타입 ───
+type RevenueCatEventType =
+  | 'INITIAL_PURCHASE'
+  | 'RENEWAL'
+  | 'CANCELLATION'
+  | 'UNCANCELLATION'
+  | 'EXPIRATION'
+  | 'REFUND'
+  | 'NON_RENEWING_PURCHASE'
+  | 'SUBSCRIPTION_PAUSED'
+  | 'TRANSFER';
 
-  const verifyWithUrl = async (url: string) => {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        'receipt-data': receiptData,
-        password: sharedSecret,
-        'exclude-old-transactions': true,
-      }),
-    });
-    return res.json() as Promise<{ status: number; latest_receipt_info?: Array<{ expires_date_ms: string }> }>;
+interface RevenueCatWebhookPayload {
+  api_version: string;
+  event: {
+    type: RevenueCatEventType;
+    app_user_id: string;        // Purchases.logIn(uid)으로 설정한 Firebase UID
+    expiration_at_ms: number | null;
+    product_id: string;
+    environment: 'PRODUCTION' | 'SANDBOX';
   };
-
-  let result = await verifyWithUrl('https://buy.itunes.apple.com/verifyReceipt');
-  // status 21007: sandbox 영수증이 production으로 전송된 경우
-  if (result.status === 21007) {
-    result = await verifyWithUrl('https://sandbox.itunes.apple.com/verifyReceipt');
-  }
-
-  if (result.status !== 0 || !result.latest_receipt_info?.length) {
-    return { valid: false, expiresAt: null };
-  }
-
-  result.latest_receipt_info.sort(
-    (a, b) => Number(b.expires_date_ms) - Number(a.expires_date_ms),
-  );
-  const expiresAt = new Date(Number(result.latest_receipt_info[0].expires_date_ms));
-  return { valid: expiresAt > new Date(), expiresAt };
 }
 
-// ─── Google Play 구매 검증 ───
-async function getGoogleAccessToken(serviceAccountJson: string): Promise<string> {
-  const sa = JSON.parse(serviceAccountJson) as { client_email: string; private_key: string };
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
-  const now = Math.floor(Date.now() / 1000);
-  const payload = Buffer.from(
-    JSON.stringify({
-      iss: sa.client_email,
-      scope: 'https://www.googleapis.com/auth/androidpublisher',
-      aud: 'https://oauth2.googleapis.com/token',
-      iat: now,
-      exp: now + 3600,
-    }),
-  ).toString('base64url');
-
-  const sign = crypto.createSign('RSA-SHA256');
-  sign.update(`${header}.${payload}`);
-  const signature = sign.sign(sa.private_key, 'base64url');
-
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${header}.${payload}.${signature}`,
-  });
-  const tokenData = await tokenRes.json() as { access_token: string };
-  return tokenData.access_token;
-}
-
-async function verifyAndroidPurchase(
-  purchaseToken: string,
-  productId: string,
-): Promise<{ valid: boolean; expiresAt: Date | null }> {
-  const serviceAccountJson = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON;
-  const packageName = process.env.GOOGLE_PLAY_PACKAGE_NAME;
-  if (!serviceAccountJson || !packageName) {
-    throw new Error('GOOGLE_PLAY_SERVICE_ACCOUNT_JSON or GOOGLE_PLAY_PACKAGE_NAME not configured');
+// ─── POST /api/revenuecat-webhook ───
+// RevenueCat Dashboard → Project Settings → Integrations → Webhooks
+// Authorization Header 값을 REVENUECAT_WEBHOOK_AUTH_HEADER 환경변수에 설정
+app.post('/api/revenuecat-webhook', async (req, res) => {
+  // 웹훅 인증 헤더 검증
+  const expectedAuth = process.env.REVENUECAT_WEBHOOK_AUTH_HEADER;
+  if (expectedAuth && req.headers.authorization !== `Bearer ${expectedAuth}`) {
+    return res.status(401).json({ error: 'unauthorized' });
   }
 
-  const accessToken = await getGoogleAccessToken(serviceAccountJson);
-  const url = `https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${packageName}/purchases/subscriptions/${productId}/tokens/${purchaseToken}`;
-
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-  if (!res.ok) return { valid: false, expiresAt: null };
-
-  const data = await res.json() as { paymentState?: number; expiryTimeMillis?: string };
-  // paymentState: 1 = 결제 완료, 2 = 무료 체험
-  if (data.paymentState !== 1 && data.paymentState !== 2) {
-    return { valid: false, expiresAt: null };
-  }
-
-  const expiresAt = new Date(Number(data.expiryTimeMillis));
-  return { valid: expiresAt > new Date(), expiresAt };
-}
-
-// ─── POST /api/verify-purchase (IAP 영수증 검증 후 프리미엄 활성화) ───
-app.post('/api/verify-purchase', async (req, res) => {
   if (!firebaseEnabled) {
-    return res.status(503).json({ error: 'auth_not_configured' });
+    return res.status(503).json({ error: 'firebase_not_configured' });
   }
 
-  const userInfo = await verifyToken(req.headers.authorization);
-  if (!userInfo) {
-    return res.status(401).json({ error: 'auth_required' });
+  const payload = req.body as RevenueCatWebhookPayload;
+  const event = payload?.event;
+  if (!event?.app_user_id || !event?.type) {
+    return res.status(400).json({ error: 'invalid_payload' });
   }
 
-  const { platform, receiptData, productId } = req.body as {
-    platform?: string;
-    receiptData?: string;
-    productId?: string;
-  };
+  const uid = event.app_user_id;
+  const userRef = admin.firestore().collection('users').doc(uid);
 
-  if (!platform || !receiptData || !productId) {
-    return res.status(400).json({ error: 'invalid_request' });
-  }
-  if (platform !== 'ios' && platform !== 'android') {
-    return res.status(400).json({ error: 'invalid_request', message: 'platform must be ios or android' });
-  }
-
-  let verifyResult: { valid: boolean; expiresAt: Date | null };
   try {
-    if (platform === 'ios') {
-      verifyResult = await verifyAppleReceipt(receiptData);
-    } else {
-      verifyResult = await verifyAndroidPurchase(receiptData, productId);
+    switch (event.type) {
+      case 'INITIAL_PURCHASE':
+      case 'RENEWAL':
+      case 'UNCANCELLATION': {
+        // 구독 활성화 또는 갱신
+        const expiresAt = event.expiration_at_ms
+          ? admin.firestore.Timestamp.fromMillis(event.expiration_at_ms)
+          : null;
+        await userRef.set(
+          {
+            isPremium: true,
+            ...(expiresAt && { premiumExpiresAt: expiresAt }),
+          },
+          { merge: true },
+        );
+        console.log(`[RC Webhook] ${event.type}: uid=${uid}, expires=${event.expiration_at_ms}`);
+        break;
+      }
+
+      case 'EXPIRATION':
+      case 'REFUND':
+        // 구독 만료 또는 환불 → 프리미엄 즉시 해제
+        await userRef.set({ isPremium: false }, { merge: true });
+        console.log(`[RC Webhook] ${event.type}: uid=${uid} → premium revoked`);
+        break;
+
+      case 'CANCELLATION':
+        // 구독 취소 예약 (만료일까지는 활성 유지)
+        // RevenueCat이 만료일에 EXPIRATION 이벤트를 전송하므로 별도 처리 불필요
+        console.log(`[RC Webhook] CANCELLATION: uid=${uid} (active until expiry)`);
+        break;
+
+      default:
+        // TRANSFER, SUBSCRIPTION_PAUSED 등 기타 이벤트는 무시
+        break;
     }
+
+    return res.json({ received: true });
   } catch (err) {
-    console.error('Receipt verification error:', err);
-    return res.status(500).json({ error: 'verification_failed' });
+    console.error('[RC Webhook] Processing error:', err);
+    // 5xx 응답 시 RevenueCat이 최대 5회 재시도
+    return res.status(500).json({ error: 'server_error' });
   }
-
-  if (!verifyResult.valid || !verifyResult.expiresAt) {
-    return res.status(400).json({ error: 'invalid_receipt' });
-  }
-
-  await admin.firestore().collection('users').doc(userInfo.uid).set(
-    {
-      isPremium: true,
-      premiumExpiresAt: admin.firestore.Timestamp.fromDate(verifyResult.expiresAt),
-      lastPurchase: {
-        platform,
-        productId,
-        purchasedAt: admin.firestore.FieldValue.serverTimestamp(),
-        // Android purchaseToken 저장: 향후 환불/구독 취소 감지에 사용
-        ...(platform === 'android' && { purchaseToken: receiptData }),
-      },
-    },
-    { merge: true },
-  );
-
-  return res.json({ success: true, isPremium: true });
 });
 
 // ─── GET /health ───
