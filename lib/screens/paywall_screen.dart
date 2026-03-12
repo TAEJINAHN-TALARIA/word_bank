@@ -34,9 +34,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
       _error = null;
     });
     try {
-      await context.read<SubscriptionService>().restorePurchases();
-      await context.read<SubscriptionService>().refreshStatus();
-      if (mounted && context.read<SubscriptionService>().isPremium) {
+      final service = context.read<SubscriptionService>();
+      await service.restorePurchases();
+      await service.refreshStatus();
+      if (mounted && service.isPremium) {
         Navigator.of(context).pop(true);
       } else if (mounted) {
         setState(() => _error = '복원할 구독을 찾을 수 없습니다.');
@@ -180,7 +181,7 @@ class _PremiumFeature extends StatelessWidget {
           width: 48,
           height: 48,
           decoration: BoxDecoration(
-            color: const Color(0xFF2C3E50).withOpacity(0.08),
+            color: const Color(0xFF2C3E50).withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(icon, color: const Color(0xFF2C3E50), size: 24),
