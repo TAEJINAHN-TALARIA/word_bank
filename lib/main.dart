@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'db/database_helper.dart';
 import 'firebase_options.dart';
 import 'screens/library_screen.dart';
@@ -9,16 +10,22 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DatabaseHelper.init();
 
+  final subscriptionService = SubscriptionService();
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    await SubscriptionService.initialize();
+    await subscriptionService.initialize();
   } catch (e) {
     debugPrint('Firebase not configured, running without auth: $e');
   }
 
-  runApp(const WordBankApp());
+  runApp(
+    ChangeNotifierProvider.value(
+      value: subscriptionService,
+      child: const WordBankApp(),
+    ),
+  );
 }
 
 class WordBankApp extends StatelessWidget {

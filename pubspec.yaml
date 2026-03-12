@@ -47,6 +47,10 @@ dependencies:
   # In-App Purchase (RevenueCat)
   purchases_flutter: ^8.0.0
 
+  # State management & caching
+  provider: ^6.1.2
+  shared_preferences: ^2.3.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
