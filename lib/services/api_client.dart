@@ -41,7 +41,7 @@ Future<LookupResult> lookupWord({
   final body = <String, String>{
     'word': word,
     'language': definitionLanguage,
-    if (exampleLanguage != null) 'exampleLanguage': exampleLanguage,
+    'exampleLanguage': ?exampleLanguage,
   };
 
   final headers = <String, String>{
