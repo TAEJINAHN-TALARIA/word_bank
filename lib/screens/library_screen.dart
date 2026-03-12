@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../db/database_helper.dart';
 import '../models/word.dart';
 import '../services/auth_service.dart';
@@ -77,7 +78,8 @@ class LibraryScreen extends StatefulWidget {
   State<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends State<LibraryScreen> {
+class _LibraryScreenState extends State<LibraryScreen>
+    with WidgetsBindingObserver {
   List<Word> _words = [];
   String? _selectedTag;
   bool _isSearching = false;
@@ -90,9 +92,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadWords();
-    _refreshSubscription();
     _loadUiLanguage();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      context.read<SubscriptionService>().refreshStatus();
+    }
   }
 
   Future<void> _loadUiLanguage() async {
@@ -100,13 +109,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (mounted) setState(() => _uiLanguage = lang);
   }
 
-  Future<void> _refreshSubscription() async {
-    await SubscriptionService.refreshStatus();
-    if (mounted) setState(() {});
-  }
-
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
   }
@@ -181,7 +186,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => _AccountSheet(s: _s, onRefresh: _refreshSubscription),
+      builder: (_) => _AccountSheet(s: _s, onRefresh: () => setState(() {})),
     );
   }
 
@@ -246,15 +251,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
         children: [
           _UsageBanner(
             s: _s,
-            onUpgrade: () async {
-              final upgraded = await Navigator.of(context).push<bool>(
-                MaterialPageRoute(
-                  builder: (_) => const PaywallScreen(),
-                  fullscreenDialog: true,
-                ),
-              );
-              if (upgraded == true) _refreshSubscription();
-            },
+            onUpgrade: () => Navigator.of(context).push<bool>(
+              MaterialPageRoute(
+                builder: (_) => const PaywallScreen(),
+                fullscreenDialog: true,
+              ),
+            ),
           ),
           Expanded(child: _buildBody()),
         ],
@@ -624,14 +626,15 @@ class _UsageBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (SubscriptionService.isPremium) return const SizedBox.shrink();
+    final service = context.watch<SubscriptionService>();
+    if (service.isPremium) return const SizedBox.shrink();
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return const SizedBox.shrink();
 
-    final used = SubscriptionService.monthlyCount;
+    final used = service.monthlyCount;
     final limit = SubscriptionService.freeLimit;
-    final remaining = SubscriptionService.remaining;
+    final remaining = service.remaining;
     final isNearLimit = remaining <= 10;
     final isAtLimit = remaining == 0;
 
@@ -755,8 +758,9 @@ class _AccountSheetState extends State<_AccountSheet> {
       );
     }
 
-    final isPremium = SubscriptionService.isPremium;
-    final used = SubscriptionService.monthlyCount;
+    final service = context.watch<SubscriptionService>();
+    final isPremium = service.isPremium;
+    final used = service.monthlyCount;
     final limit = SubscriptionService.freeLimit;
 
     return Padding(
