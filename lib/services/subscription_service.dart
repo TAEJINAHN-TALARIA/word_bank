@@ -10,9 +10,9 @@ class SubscriptionService {
   static const String monthlyProductId = 'word_bank_premium_monthly';
   static const int freeLimit = 50;
 
-  // TODO: 배포 전 RevenueCat 대시보드에서 발급받은 API 키로 교체
-  static const String _iosApiKey = 'appl_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
-  static const String _androidApiKey = 'goog_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX';
+  // TODO: 배포 전 RevenueCat 대시보드에서 발급받은 실제 API 키로 교체
+  static const String _iosApiKey = 'test_AAKutdApjufivhgOwuVxPTQjVsQ';
+  static const String _androidApiKey = 'test_AAKutdApjufivhgOwuVxPTQjVsQ';
 
   static bool _isPremium = false;
   static int _monthlyCount = 0;
