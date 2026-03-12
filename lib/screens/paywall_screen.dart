@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../services/subscription_service.dart';
 
 class PaywallScreen extends StatefulWidget {
@@ -17,16 +18,14 @@ class _PaywallScreenState extends State<PaywallScreen> {
       _isLoading = true;
       _error = null;
     });
-    try {
-      await SubscriptionService.purchase();
-      if (mounted) Navigator.of(context).pop(true);
-    } catch (e) {
-      if (mounted) {
-        setState(() => _error = '구독 처리 중 오류가 발생했습니다.\n다시 시도해 주세요.');
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+    final error = await context.read<SubscriptionService>().purchase();
+    if (!mounted) return;
+    if (error == null) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() => _error = error);
     }
+    setState(() => _isLoading = false);
   }
 
   Future<void> _restore() async {
@@ -35,9 +34,9 @@ class _PaywallScreenState extends State<PaywallScreen> {
       _error = null;
     });
     try {
-      await SubscriptionService.restorePurchases();
-      await SubscriptionService.refreshStatus();
-      if (mounted && SubscriptionService.isPremium) {
+      await context.read<SubscriptionService>().restorePurchases();
+      await context.read<SubscriptionService>().refreshStatus();
+      if (mounted && context.read<SubscriptionService>().isPremium) {
         Navigator.of(context).pop(true);
       } else if (mounted) {
         setState(() => _error = '복원할 구독을 찾을 수 없습니다.');
@@ -51,7 +50,8 @@ class _PaywallScreenState extends State<PaywallScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final used = SubscriptionService.monthlyCount;
+    final service = context.watch<SubscriptionService>();
+    final used = service.monthlyCount;
     final limit = SubscriptionService.freeLimit;
 
     return Scaffold(
