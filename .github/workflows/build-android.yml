@@ -32,6 +32,36 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Set up google-services.json
+        run: |
+          if [ -n "${{ secrets.GOOGLE_SERVICES_JSON }}" ]; then
+            echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
+          else
+            cat > android/app/google-services.json << 'EOF'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "dummy-project-id",
+              "storage_bucket": "dummy-project-id.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+                  "android_client_info": {
+                    "package_name": "com.taejinahn.wordbank"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [{ "current_key": "dummy_api_key" }],
+                "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+          fi
+
       - name: Install dependencies
         run: flutter pub get
 
