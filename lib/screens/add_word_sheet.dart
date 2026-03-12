@@ -194,6 +194,15 @@ class _AddWordSheetState extends State<AddWordSheet> {
 
   Future<void> _saveWord() async {
     final wordText = _wordController.text.trim();
+    if (wordText.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter a word before saving.')),
+        );
+      }
+      return;
+    }
+
     if (await DatabaseHelper.instance.wordExists(wordText)) {
       if (!mounted) return;
       final confirmed = await _confirmSaveDespiteDuplicate(wordText);
@@ -217,6 +226,15 @@ class _AddWordSheetState extends State<AddWordSheet> {
     if (meaning.isEmpty) return;
 
     final wordText = _wordController.text.trim();
+    if (wordText.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter a word before saving.')),
+        );
+      }
+      return;
+    }
+
     if (await DatabaseHelper.instance.wordExists(wordText)) {
       if (!mounted) return;
       final confirmed = await _confirmSaveDespiteDuplicate(wordText);
