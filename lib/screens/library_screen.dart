@@ -113,6 +113,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Future<void> _loadWords() async {
     final words = await DatabaseHelper.instance.getAllWords();
+    if (!mounted) return;
     setState(() => _words = words);
   }
 
