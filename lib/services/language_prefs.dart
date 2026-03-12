@@ -5,6 +5,9 @@ class LanguagePrefs {
   static const _boxName = 'prefs';
   static const _defLangKey = 'definitionLanguage';
   static const _exLangKey = 'exampleLanguage';
+  static const _uiLangKey = 'uiLanguage';
+
+  static const List<String> supportedUiLanguages = ['English', '한국어'];
 
   static Future<Box> get _box => Hive.openBox(_boxName);
 
@@ -42,5 +45,15 @@ class LanguagePrefs {
     } else {
       await box.put(_exLangKey, lang);
     }
+  }
+
+  static Future<String> getUiLanguage() async {
+    final box = await _box;
+    return box.get(_uiLangKey, defaultValue: 'English') as String;
+  }
+
+  static Future<void> setUiLanguage(String lang) async {
+    final box = await _box;
+    await box.put(_uiLangKey, lang);
   }
 }

@@ -189,8 +189,10 @@ app.post('/api/lookup', async (req, res) => {
       ],
     });
 
-    const text =
+    const raw =
       response.content[0].type === 'text' ? response.content[0].text.trim() : '';
+    // 마크다운 코드블록 제거 (```json ... ``` 또는 ``` ... ```)
+    const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
 
     let result: unknown;
     try {

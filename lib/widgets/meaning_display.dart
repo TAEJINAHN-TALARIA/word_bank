@@ -37,7 +37,7 @@ List<MeaningSection> parseMeaningSections(String meaning) {
 
   for (final line in lines) {
     final trimmed = line.trim();
-    final posMatch = RegExp(r'^\[(\w+)\]$').firstMatch(trimmed);
+    final posMatch = RegExp(r'^\[(.+)\]$').firstMatch(trimmed);
     if (posMatch != null) {
       flush();
       currentPos = posMatch.group(1)!;
@@ -58,8 +58,46 @@ List<MeaningSection> parseMeaningSections(String meaning) {
   return sections;
 }
 
-Color _posBg(String pos) {
+// 다국어 POS를 영어 카테고리로 정규화
+String _normalizePos(String pos) {
   switch (pos.toLowerCase()) {
+    case 'noun':
+    case '명사':
+    case '名詞':
+    case '名词':
+    case 'sustantivo':
+    case 'nom':
+    case 'nomen':
+      return 'noun';
+    case 'verb':
+    case '동사':
+    case '動詞':
+    case '动词':
+    case 'verbo':
+    case 'verbe':
+      return 'verb';
+    case 'adjective':
+    case '형용사':
+    case '形容詞':
+    case '形容词':
+    case 'adjetivo':
+    case 'adjectif':
+    case 'adjektiv':
+      return 'adjective';
+    case 'adverb':
+    case '부사':
+    case '副詞':
+    case '副词':
+    case 'adverbio':
+    case 'adverbe':
+      return 'adverb';
+    default:
+      return 'other';
+  }
+}
+
+Color _posBg(String pos) {
+  switch (_normalizePos(pos)) {
     case 'noun':
       return const Color(0xFFBBDEFB);
     case 'verb':
@@ -74,7 +112,7 @@ Color _posBg(String pos) {
 }
 
 Color _posFg(String pos) {
-  switch (pos.toLowerCase()) {
+  switch (_normalizePos(pos)) {
     case 'noun':
       return const Color(0xFF1565C0);
     case 'verb':
