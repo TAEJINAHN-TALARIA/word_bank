@@ -54,10 +54,12 @@ class _AddWordSheetState extends State<AddWordSheet> {
   Future<void> _loadLanguagePrefs() async {
     final defLang = await LanguagePrefs.getDefinitionLanguage();
     final exLang = await LanguagePrefs.getExampleLanguage();
-    if (mounted) setState(() {
-      _definitionLanguage = defLang;
-      _exampleLanguage = exLang;
-    });
+    if (mounted) {
+      setState(() {
+        _definitionLanguage = defLang;
+        _exampleLanguage = exLang;
+      });
+    }
   }
 
   Future<void> _loadExistingTags() async {
@@ -643,47 +645,6 @@ class _AddWordSheetState extends State<AddWordSheet> {
     );
   }
 
-  Future<void> _showLanguagePicker({
-    required String title,
-    required String? current,
-    required List<String?> options,
-    required List<String> labels,
-    required void Function(String?) onSelected,
-  }) async {
-    final result = await showModalBottomSheet<String?>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
-              child: Text(title,
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.bold)),
-            ),
-            const Divider(height: 1),
-            ...List.generate(options.length, (i) {
-              final isSelected = options[i] == current;
-              return ListTile(
-                title: Text(labels[i]),
-                trailing:
-                    isSelected ? const Icon(Icons.check, size: 20) : null,
-                onTap: () => Navigator.pop(ctx, options[i] ?? '\x00'),
-              );
-            }),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-    if (result != null) {
-      onSelected(result == '\x00' ? null : result);
-    }
-  }
 
   List<Widget> _tagSection() {
     return [
