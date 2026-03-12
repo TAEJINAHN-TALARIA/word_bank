@@ -1,4 +1,4 @@
-package com.example.word_bank
+package com.taejinahn.wordbank
 
 import io.flutter.embedding.android.FlutterActivity
 
