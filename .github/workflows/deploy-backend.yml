@@ -52,6 +52,7 @@ jobs:
       - name: Enable required GCP APIs
         run: |
           gcloud services enable \
+            cloudresourcemanager.googleapis.com \
             run.googleapis.com \
             artifactregistry.googleapis.com \
             secretmanager.googleapis.com \
