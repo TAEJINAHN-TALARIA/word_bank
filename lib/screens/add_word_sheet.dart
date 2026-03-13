@@ -505,31 +505,50 @@ class _AddWordSheetState extends State<AddWordSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.wifi_off, size: 16, color: Color(0xFFC62828)),
-                        SizedBox(width: 6),
-                        Text(
-                          'Network error',
-                          style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFFC62828)),
-                        ),
-                      ],
+                    GestureDetector(
+                      onTap: _networkErrorDetail == null ? null : () {
+                        showDialog(
+                          context: context,
+                          builder: (_) => AlertDialog(
+                            title: const Text('오류 상세'),
+                            content: SingleChildScrollView(
+                              child: Text(
+                                _networkErrorDetail!,
+                                style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pop(),
+                                child: const Text('닫기'),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                      child: Row(
+                        children: [
+                          const Icon(Icons.wifi_off, size: 16, color: Color(0xFFC62828)),
+                          const SizedBox(width: 6),
+                          const Text(
+                            'Network error',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFC62828)),
+                          ),
+                          if (_networkErrorDetail != null) ...[
+                            const SizedBox(width: 4),
+                            const Icon(Icons.info_outline, size: 14, color: Color(0xFFC62828)),
+                          ],
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 4),
                     const Text(
                       'Check your internet connection and try again.',
                       style: TextStyle(fontSize: 13, color: Color(0xFF5D4037)),
                     ),
-                    if (_networkErrorDetail != null) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        _networkErrorDetail!,
-                        style: const TextStyle(fontSize: 11, color: Color(0xFF5D4037), fontFamily: 'monospace'),
-                      ),
-                    ],
                     const SizedBox(height: 8),
                     GestureDetector(
                       onTap: _enterManually,
