@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../db/database_helper.dart';
 import '../models/word.dart';
 import '../services/api_client.dart';
 import '../services/language_prefs.dart';
+import 'login_screen.dart';
 import 'paywall_screen.dart';
 
 class AddWordSheet extends StatefulWidget {
@@ -131,9 +133,10 @@ class _AddWordSheetState extends State<AddWordSheet> {
       if (mounted) {
         setState(() => _isLoading = false);
         Navigator.of(context).pop();
+        final isAnonymous = FirebaseAuth.instance.currentUser?.isAnonymous ?? true;
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => const PaywallScreen(),
+            builder: (_) => isAnonymous ? const LoginScreen() : const PaywallScreen(),
             fullscreenDialog: true,
           ),
         );
