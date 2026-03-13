@@ -22,6 +22,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
   bool _notFound = false;
   bool _isManualEntry = false;
   bool _networkError = false;
+  String? _networkErrorDetail;
   String? _searchResult;
   String? _phonetic;
   List<String> _existingTags = [];
@@ -105,6 +106,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
       _phonetic = null;
       _notFound = false;
       _networkError = false;
+      _networkErrorDetail = null;
       _wordSuggestions = [];
     });
 
@@ -137,12 +139,14 @@ class _AddWordSheetState extends State<AddWordSheet> {
         );
       }
       return;
-    } on SocketException {
-      if (mounted) setState(() => _networkError = true);
-    } on http.ClientException {
-      if (mounted) setState(() => _networkError = true);
-    } catch (_) {
-      if (mounted) setState(() => _networkError = true);
+    } on SocketException catch (e) {
+      if (mounted) setState(() { _networkError = true; _networkErrorDetail = 'SocketException: $e'; });
+    } on http.ClientException catch (e) {
+      if (mounted) setState(() { _networkError = true; _networkErrorDetail = 'ClientException: $e'; });
+    } on TimeoutException catch (e) {
+      if (mounted) setState(() { _networkError = true; _networkErrorDetail = 'TimeoutException: $e'; });
+    } catch (e, st) {
+      if (mounted) setState(() { _networkError = true; _networkErrorDetail = '${e.runtimeType}: $e\n$st'; });
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -516,6 +520,13 @@ class _AddWordSheetState extends State<AddWordSheet> {
                       'Check your internet connection and try again.',
                       style: TextStyle(fontSize: 13, color: Color(0xFF5D4037)),
                     ),
+                    if (_networkErrorDetail != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        _networkErrorDetail!,
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF5D4037), fontFamily: 'monospace'),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     GestureDetector(
                       onTap: _enterManually,
