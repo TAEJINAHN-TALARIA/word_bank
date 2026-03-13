@@ -76,7 +76,7 @@ jobs:
         continue-on-error: true
 
       - name: Build debug APK
-        run: flutter build apk --debug
+        run: flutter build apk --debug --dart-define=BACKEND_URL=${{ secrets.BACKEND_URL }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v6
