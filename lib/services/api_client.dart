@@ -53,6 +53,10 @@ Future<LookupResult> lookupWord({
       .post(uri, headers: headers, body: jsonEncode(body))
       .timeout(const Duration(seconds: 15));
 
+  if (response.statusCode == 401) {
+    throw LookupAuthException();
+  }
+
   final data = jsonDecode(response.body) as Map<String, dynamic>;
 
   if (response.statusCode == 200) {
@@ -108,6 +112,8 @@ String _formatMeanings(Map<String, dynamic> data) {
 }
 
 class LookupNotFoundException implements Exception {}
+
+class LookupAuthException implements Exception {}
 
 class LookupRateLimitException implements Exception {}
 

@@ -22,6 +22,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
   bool _notFound = false;
   bool _isManualEntry = false;
   bool _networkError = false;
+  bool _authError = false;
   String? _searchResult;
   String? _phonetic;
   List<String> _existingTags = [];
@@ -105,6 +106,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
       _phonetic = null;
       _notFound = false;
       _networkError = false;
+      _authError = false;
       _wordSuggestions = [];
     });
 
@@ -121,6 +123,8 @@ class _AddWordSheetState extends State<AddWordSheet> {
         });
         _wordController.text = result.word;
       }
+    } on LookupAuthException {
+      if (mounted) setState(() => _authError = true);
     } on LookupNotFoundException {
       if (mounted) setState(() => _notFound = true);
     } on LookupRateLimitException {
@@ -486,7 +490,55 @@ class _AddWordSheetState extends State<AddWordSheet> {
                 ),
               ),
 
-            if (_networkError) ...[
+            if (_authError) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3E0),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFFCC80)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.lock_outline,
+                            size: 16, color: Color(0xFFE65100)),
+                        SizedBox(width: 6),
+                        Text(
+                          'Sign in required',
+                          style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFFE65100)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Please sign in to look up word definitions.',
+                      style:
+                          TextStyle(fontSize: 13, color: Color(0xFF5D4037)),
+                    ),
+                    const SizedBox(height: 8),
+                    GestureDetector(
+                      onTap: _enterManually,
+                      child: const Text(
+                        'Enter the definition yourself →',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF2C3E50),
+                          fontWeight: FontWeight.w600,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (_networkError) ...[
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(14),
