@@ -1,0 +1,166 @@
+name: Deploy Backend to Cloud Run
+
+# ─── 필요한 GitHub Secrets ────────────────────────────────────────────────────
+# GCP_PROJECT_ID          : GCP 프로젝트 ID (예: my-project-123456)
+# GCP_SA_KEY              : CI용 서비스 계정 JSON 키 (아래 필요 역할 참고)
+# ANTHROPIC_API_KEY       : Anthropic API 키
+# FIREBASE_SERVICE_ACCOUNT: Firebase Admin SDK 서비스 계정 JSON
+# REVENUECAT_WEBHOOK_SECRET: RevenueCat 웹훅 시크릿 (선택)
+#
+# ─── CI 서비스 계정에 필요한 IAM 역할 ─────────────────────────────────────────
+# roles/run.admin
+# roles/artifactregistry.admin
+# roles/secretmanager.admin
+# roles/iam.securityAdmin        (Cloud Run SA에 Secret Accessor 권한 부여용)
+# roles/iam.serviceAccountUser   (Cloud Run 기본 SA에 actAs 권한)
+# roles/serviceusage.serviceUsageAdmin (API 활성화용)
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+env:
+  REGION: asia-northeast3
+  SERVICE_NAME: word-bank-backend
+  REPO: word-bank
+  IMAGE_NAME: backend
+
+jobs:
+  deploy:
+    name: Build & Deploy to Cloud Run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Enable required GCP APIs
+        run: |
+          gcloud services enable \
+            run.googleapis.com \
+            artifactregistry.googleapis.com \
+            secretmanager.googleapis.com \
+            --project=${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Create Artifact Registry repository (if not exists)
+        run: |
+          gcloud artifacts repositories create $REPO \
+            --repository-format=docker \
+            --location=$REGION \
+            --description="Word Bank Docker images" \
+            --project=${{ secrets.GCP_PROJECT_ID }} 2>/dev/null || true
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
+
+      - name: Build and push Docker image
+        env:
+          IMAGE: ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}
+        working-directory: backend
+        run: |
+          docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
+          docker push $IMAGE:${{ github.sha }}
+          docker push $IMAGE:latest
+
+      - name: Sync secrets to Secret Manager
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          REVENUECAT_WEBHOOK_SECRET: ${{ secrets.REVENUECAT_WEBHOOK_SECRET }}
+        run: |
+          upsert_secret() {
+            local name="$1"
+            local file="$2"
+            gcloud secrets create "$name" \
+              --data-file="$file" \
+              --replication-policy=automatic \
+              --project=${{ secrets.GCP_PROJECT_ID }} 2>/dev/null \
+            || gcloud secrets versions add "$name" \
+              --data-file="$file" \
+              --project=${{ secrets.GCP_PROJECT_ID }}
+          }
+
+          printf '%s' "$ANTHROPIC_API_KEY" > /tmp/s_anthropic.txt
+          upsert_secret anthropic-api-key /tmp/s_anthropic.txt
+
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > /tmp/s_firebase.txt
+          upsert_secret firebase-service-account /tmp/s_firebase.txt
+
+          if [ -n "$REVENUECAT_WEBHOOK_SECRET" ]; then
+            printf '%s' "$REVENUECAT_WEBHOOK_SECRET" > /tmp/s_rc.txt
+            upsert_secret revenuecat-webhook-secret /tmp/s_rc.txt
+            rm /tmp/s_rc.txt
+          fi
+
+          rm /tmp/s_anthropic.txt /tmp/s_firebase.txt
+
+      - name: Grant Cloud Run service account access to secrets
+        run: |
+          PROJECT_NUMBER=$(gcloud projects describe ${{ secrets.GCP_PROJECT_ID }} --format='value(projectNumber)')
+          SA_EMAIL="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+          for SECRET in anthropic-api-key firebase-service-account; do
+            gcloud secrets add-iam-policy-binding $SECRET \
+              --member="serviceAccount:$SA_EMAIL" \
+              --role="roles/secretmanager.secretAccessor" \
+              --project=${{ secrets.GCP_PROJECT_ID }} > /dev/null
+          done
+
+          # revenuecat-webhook-secret는 존재할 때만 권한 부여
+          if gcloud secrets describe revenuecat-webhook-secret \
+              --project=${{ secrets.GCP_PROJECT_ID }} > /dev/null 2>&1; then
+            gcloud secrets add-iam-policy-binding revenuecat-webhook-secret \
+              --member="serviceAccount:$SA_EMAIL" \
+              --role="roles/secretmanager.secretAccessor" \
+              --project=${{ secrets.GCP_PROJECT_ID }} > /dev/null
+          fi
+
+      - name: Deploy to Cloud Run
+        env:
+          IMAGE: ${{ env.REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPO }}/${{ env.IMAGE_NAME }}
+        run: |
+          # --set-secrets 구성 (revenuecat은 존재 시에만 추가)
+          SECRETS="ANTHROPIC_API_KEY=anthropic-api-key:latest,FIREBASE_SERVICE_ACCOUNT=firebase-service-account:latest"
+          if gcloud secrets describe revenuecat-webhook-secret \
+              --project=${{ secrets.GCP_PROJECT_ID }} > /dev/null 2>&1; then
+            SECRETS="$SECRETS,REVENUECAT_WEBHOOK_SECRET=revenuecat-webhook-secret:latest"
+          fi
+
+          gcloud run deploy $SERVICE_NAME \
+            --image $IMAGE:${{ github.sha }} \
+            --region $REGION \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-secrets "$SECRETS" \
+            --min-instances 0 \
+            --max-instances 10 \
+            --memory 512Mi \
+            --cpu 1 \
+            --timeout 30 \
+            --project ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Print service URL
+        run: |
+          URL=$(gcloud run services describe $SERVICE_NAME \
+            --region $REGION \
+            --format 'value(status.url)' \
+            --project ${{ secrets.GCP_PROJECT_ID }})
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Backend deployed: $URL"
+          echo "👉 GitHub Secrets에 BACKEND_URL=$URL 을 추가하세요."
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
