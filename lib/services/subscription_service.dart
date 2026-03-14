@@ -73,13 +73,14 @@ class SubscriptionService extends ChangeNotifier {
   }
 
   static String _monthKey(DateTime dt) {
-    final mm = dt.month.toString().padLeft(2, '0');
-    return '${dt.year}-$mm';
+    final utc = dt.toUtc();
+    final mm = utc.month.toString().padLeft(2, '0');
+    return '${utc.year}-$mm';
   }
 
   static Future<int> getMonthlySaveCount() async {
     final prefs = await SharedPreferences.getInstance();
-    final nowKey = _monthKey(DateTime.now());
+    final nowKey = _monthKey(DateTime.now().toUtc());
     final storedKey = prefs.getString(_saveMonthKey);
     if (storedKey != nowKey) {
       await prefs.setString(_saveMonthKey, nowKey);
@@ -91,7 +92,7 @@ class SubscriptionService extends ChangeNotifier {
 
   static Future<void> incrementMonthlySaveCount() async {
     final prefs = await SharedPreferences.getInstance();
-    final nowKey = _monthKey(DateTime.now());
+    final nowKey = _monthKey(DateTime.now().toUtc());
     final storedKey = prefs.getString(_saveMonthKey);
     int count = prefs.getInt(_saveCountKey) ?? 0;
     if (storedKey != nowKey) {

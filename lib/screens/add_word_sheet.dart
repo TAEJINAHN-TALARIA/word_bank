@@ -528,22 +528,26 @@ class _AddWordSheetState extends State<AddWordSheet> {
             TextField(
               controller: _manualMeaningController,
               maxLines: 3,
+              maxLength: 500,
               decoration: const InputDecoration(
                 labelText: 'Definition',
                 hintText: 'What does this word mean?',
                 floatingLabelBehavior: FloatingLabelBehavior.always,
                 border: OutlineInputBorder(),
+                counterText: '',
               ),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _manualExampleController,
               maxLines: 2,
+              maxLength: 200,
               decoration: const InputDecoration(
                 labelText: 'Example sentence (optional)',
                 hintText: 'e.g. The term is used in chapter 3.',
                 floatingLabelBehavior: FloatingLabelBehavior.always,
                 border: OutlineInputBorder(),
+                counterText: '',
               ),
             ),
             const SizedBox(height: 14),
@@ -724,11 +728,13 @@ class _AddWordSheetState extends State<AddWordSheet> {
                 controller: _contextController,
                 enabled: !_isLoading,
                 maxLines: 2,
+                maxLength: 500,
                 decoration: const InputDecoration(
                   labelText: 'Context (optional)',
                   hintText: 'Paste the sentence where you found it.',
                   floatingLabelBehavior: FloatingLabelBehavior.always,
                   border: OutlineInputBorder(),
+                  counterText: '',
                 ),
               ),
 
@@ -794,12 +800,14 @@ class _AddWordSheetState extends State<AddWordSheet> {
           Expanded(
             child: TextField(
               controller: _tagController,
+              maxLength: 50,
               decoration: const InputDecoration(
                 labelText: 'Add tags (optional)',
                 hintText: 'e.g. literature, philosophy',
                 floatingLabelBehavior: FloatingLabelBehavior.always,
                 border: OutlineInputBorder(),
                 isDense: true,
+                counterText: '',
               ),
               onSubmitted: _addTag,
             ),

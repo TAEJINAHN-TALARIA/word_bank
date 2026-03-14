@@ -75,51 +75,63 @@ class WordSyncService {
     }
   }
 
+  static Word _docToWord(Map<String, dynamic> data) {
+    final rawId = data['local_id'];
+    final id = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+    final createdAt = (data['created_at'] is Timestamp)
+        ? (data['created_at'] as Timestamp).toDate()
+        : DateTime.now();
+    return Word(
+      id: id,
+      word: (data['word'] as String?) ?? '',
+      phonetic: data['phonetic'] as String?,
+      meaning: (data['meaning'] as String?) ?? '',
+      meaningJson: data['meaning_json'] != null
+          ? Map<String, dynamic>.from(data['meaning_json'] as Map)
+          : null,
+      media: (data['media'] as List?)
+              ?.map((e) => Map<String, dynamic>.from(e as Map))
+              .toList() ??
+          const [],
+      context: data['context'] as String?,
+      tags: (data['tags'] as List?)?.map((e) => e.toString()).toList() ??
+          const [],
+      createdAt: createdAt,
+    );
+  }
+
   static Future<List<Word>> fetchAll() async {
     final uid = _uidOrNull();
     if (uid == null) {
       debugPrint('Firestore fetch skipped: user not signed in');
       return [];
     }
+    const pageSize = 500;
+    final words = <Word>[];
+    DocumentSnapshot? lastDoc;
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('words')
-          .get();
-      final words = <Word>[];
-      for (final doc in snap.docs) {
-        final data = doc.data();
-        final rawId = data['local_id'];
-        final id = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
-        if (id == null) continue;
-        final createdAt = (data['created_at'] is Timestamp)
-            ? (data['created_at'] as Timestamp).toDate()
-            : DateTime.now();
-        words.add(
-          Word(
-            id: id,
-            word: (data['word'] as String?) ?? '',
-            phonetic: data['phonetic'] as String?,
-            meaning: (data['meaning'] as String?) ?? '',
-            meaningJson: data['meaning_json'] != null
-                ? Map<String, dynamic>.from(data['meaning_json'] as Map)
-                : null,
-            media: (data['media'] as List?)
-                    ?.map((e) => Map<String, dynamic>.from(e as Map))
-                    .toList() ??
-                const [],
-            context: data['context'] as String?,
-            tags: (data['tags'] as List?)?.map((e) => e.toString()).toList() ??
-                const [],
-            createdAt: createdAt,
-          ),
-        );
+      while (true) {
+        var query = FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .collection('words')
+            .orderBy(FieldPath.documentId)
+            .limit(pageSize);
+        if (lastDoc != null) {
+          query = query.startAfterDocument(lastDoc);
+        }
+        final snap = await query.get();
+        for (final doc in snap.docs) {
+          final word = _docToWord(doc.data());
+          if (word.id != null) words.add(word);
+        }
+        if (snap.docs.length < pageSize) break;
+        lastDoc = snap.docs.last;
       }
       return words;
     } catch (e) {
       debugPrint('Firestore fetch failed: $e');
-      return [];
+      return words; // 부분적으로 받아온 데이터라도 반환
     }
   }
 }
