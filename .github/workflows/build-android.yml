@@ -68,6 +68,45 @@ jobs:
           EOF
           fi
 
+      - name: Validate google-services.json (not dummy / valid JSON)
+        run: |
+          python - << 'PY'
+          import json
+          import sys
+
+          path = "android/app/google-services.json"
+          try:
+              with open(path, "r", encoding="utf-8") as f:
+                  data = json.load(f)
+          except json.JSONDecodeError as e:
+              raise SystemExit(
+                  "google-services.json is not valid JSON. "
+                  "If GOOGLE_SERVICES_JSON is base64, store the raw JSON instead."
+              ) from e
+
+          project_id = data.get("project_info", {}).get("project_id", "")
+          if not project_id or project_id.startswith("dummy-"):
+              raise SystemExit(
+                  "google-services.json looks like the dummy placeholder. "
+                  "Set the GOOGLE_SERVICES_JSON secret to your real file contents."
+              )
+
+          # Quick sanity: ensure an Android OAuth client exists
+          has_android_oauth = False
+          for client in data.get("client", []):
+              for oc in client.get("oauth_client", []):
+                  if oc.get("client_type") == 1:
+                      has_android_oauth = True
+                      break
+          if not has_android_oauth:
+              raise SystemExit(
+                  "No Android OAuth client found in google-services.json. "
+                  "Download a fresh file from Firebase for the correct app."
+              )
+
+          print(f"google-services.json OK (project_id={project_id})")
+          PY
+
       - name: Restore debug keystore (consistent SHA-1 for Google Sign-In)
         env:
           DEBUG_KEYSTORE: ${{ secrets.DEBUG_KEYSTORE }}
@@ -101,6 +140,65 @@ jobs:
 
       - name: Build debug APK
         run: flutter build apk --debug --dart-define=BACKEND_URL=${{ secrets.BACKEND_URL }}
+
+      - name: Verify Google Sign-In SHA-1 matches google-services.json
+        run: |
+          python - << 'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+
+          path = "android/app/google-services.json"
+          with open(path, "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          certs = []
+          for client in data.get("client", []):
+              for oc in client.get("oauth_client", []):
+                  if oc.get("client_type") == 1:
+                      h = oc.get("android_info", {}).get("certificate_hash")
+                      if h:
+                          certs.append(h.replace(":", "").lower())
+
+          if not certs:
+              raise SystemExit("No Android certificate_hash found in google-services.json.")
+
+          keystore = os.path.expanduser("~/.android/debug.keystore")
+          if not os.path.exists(keystore):
+              raise SystemExit("debug.keystore not found after build.")
+
+          out = subprocess.check_output(
+              [
+                  "keytool",
+                  "-list",
+                  "-v",
+                  "-keystore",
+                  keystore,
+                  "-alias",
+                  "androiddebugkey",
+                  "-storepass",
+                  "android",
+                  "-keypass",
+                  "android",
+              ],
+              text=True,
+              stderr=subprocess.STDOUT,
+          )
+          m = re.search(r"SHA1:\s*([0-9A-F:]{40,})", out)
+          if not m:
+              raise SystemExit("Could not parse SHA1 from keytool output.")
+
+          sha1 = m.group(1).replace(":", "").lower()
+          if sha1 not in certs:
+              raise SystemExit(
+                  "SHA-1 mismatch. "
+                  f"keystore={sha1} not in google-services.json certs={certs}"
+              )
+
+          print("google-services.json SHA-1 matches debug keystore.")
+          PY
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v6
