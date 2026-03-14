@@ -68,6 +68,15 @@ jobs:
           EOF
           fi
 
+      - name: Restore debug keystore (consistent SHA-1 for Google Sign-In)
+        env:
+          DEBUG_KEYSTORE: ${{ secrets.DEBUG_KEYSTORE }}
+        run: |
+          if [ -n "$DEBUG_KEYSTORE" ]; then
+            mkdir -p ~/.android
+            echo "$DEBUG_KEYSTORE" | base64 -d > ~/.android/debug.keystore
+          fi
+
       - name: Install dependencies
         run: flutter pub get
 
