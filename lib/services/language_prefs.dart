@@ -1,4 +1,4 @@
-import 'package:hive_flutter/hive_flutter.dart';
+﻿import 'package:hive_flutter/hive_flutter.dart';
 
 /// Persists the user's preferred definition and example languages.
 class LanguagePrefs {
@@ -14,8 +14,8 @@ class LanguagePrefs {
   static const List<String> supported = [
     'English',
     '한국어',
-    '日本語',
     '中文',
+    '日本語',
     'Español',
     'Français',
     'Deutsch',

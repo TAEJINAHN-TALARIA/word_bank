@@ -1,17 +1,16 @@
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'api_client.dart';
 import 'auth_service.dart';
 
 class SubscriptionService extends ChangeNotifier {
   static const String _entitlementId = 'premium';
   static const String monthlyProductId = 'word_bank_premium_monthly';
-  static const int freeLimit = 50;
+  static const int freeLimit = 30;
   static const String _premiumCacheKey = 'cached_is_premium';
+  static const String _saveMonthKey = 'word_save_month';
+  static const String _saveCountKey = 'word_save_count';
 
   // TODO: 배포 전 RevenueCat 대시보드에서 발급받은 실제 API 키로 교체
   static const String _iosApiKey = 'test_AAKutdApjufivhgOwuVxPTQjVsQ';
@@ -70,23 +69,36 @@ class SubscriptionService extends ChangeNotifier {
   }
 
   Future<void> _refreshUsageCount() async {
-    final token = await AuthService.getIdToken();
-    if (token == null) return;
+    _monthlyCount = await getMonthlySaveCount();
+  }
 
-    try {
-      final uri = Uri.parse('$kBackendBaseUrl/api/usage');
-      final response = await http.get(
-        uri,
-        headers: {'Authorization': 'Bearer $token'},
-      ).timeout(const Duration(seconds: 10));
+  static String _monthKey(DateTime dt) {
+    final mm = dt.month.toString().padLeft(2, '0');
+    return '${dt.year}-$mm';
+  }
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-        _monthlyCount = data['count'] as int? ?? 0;
-      }
-    } catch (e) {
-      debugPrint('Failed to refresh usage count: $e');
+  static Future<int> getMonthlySaveCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final nowKey = _monthKey(DateTime.now());
+    final storedKey = prefs.getString(_saveMonthKey);
+    if (storedKey != nowKey) {
+      await prefs.setString(_saveMonthKey, nowKey);
+      await prefs.setInt(_saveCountKey, 0);
+      return 0;
     }
+    return prefs.getInt(_saveCountKey) ?? 0;
+  }
+
+  static Future<void> incrementMonthlySaveCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final nowKey = _monthKey(DateTime.now());
+    final storedKey = prefs.getString(_saveMonthKey);
+    int count = prefs.getInt(_saveCountKey) ?? 0;
+    if (storedKey != nowKey) {
+      count = 0;
+      await prefs.setString(_saveMonthKey, nowKey);
+    }
+    await prefs.setInt(_saveCountKey, count + 1);
   }
 
   /// 구독을 시작합니다.
@@ -126,5 +138,16 @@ class SubscriptionService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_premiumCacheKey, _isPremium);
     notifyListeners();
+  }
+
+  Future<String?> getMonthlyPriceString() async {
+    try {
+      final offerings = await Purchases.getOfferings();
+      final package = offerings.current?.monthly;
+      return package?.storeProduct.priceString;
+    } catch (e) {
+      debugPrint('RevenueCat getOfferings failed: $e');
+      return null;
+    }
   }
 }

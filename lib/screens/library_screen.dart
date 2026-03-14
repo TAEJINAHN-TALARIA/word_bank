@@ -1,3 +1,4 @@
+﻿import 'dart:async';
 import 'dart:math';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -7,41 +8,43 @@ import '../models/word.dart';
 import '../services/auth_service.dart';
 import '../services/language_prefs.dart';
 import '../services/subscription_service.dart';
+import '../services/word_sync_service.dart';
 import '../widgets/meaning_display.dart';
 import 'add_word_sheet.dart';
 import 'login_screen.dart';
 import 'paywall_screen.dart';
 import 'word_detail_sheet.dart';
 
-// ─── UI Strings ───
+// ??? UI Strings ???
 class _S {
   final bool _ko;
   const _S._(this._ko);
   static _S of(String lang) => _S._(lang == '한국어');
 
-  String get searchHint => _ko ? '단어 검색...' : 'Search words...';
+  String get searchHint => _ko ? '단어 검색..' : 'Search words...';
   String get randomWord => _ko ? '랜덤 단어' : 'Random word';
   String get settings => _ko ? '설정' : 'Settings';
   String get signIn => _ko ? '로그인' : 'Sign In';
   String get account => _ko ? '계정' : 'Account';
   String get addWord => _ko ? '단어 추가' : 'Add Word';
   String get emptyMessage => _ko
-      ? '저장된 단어가 없어요.\n읽다가 모르는 단어가 생기면\n단어 추가 버튼으로 기록해 보세요.'
+      ? '저장된 단어가 없어요.\n독서 중 모르는 단어가 나오면\n단어 추가 버튼으로 기록해보세요.'
       : 'No words saved yet.\nFind an unfamiliar word while reading?\nAdd it to your Word Bank.';
   String get all => _ko ? '전체' : 'All';
   String noResults(String q) =>
-      _ko ? '"$q" 검색 결과가 없어요.' : 'No results for "$q".';
+      _ko ? '"$q" 검색 결과가 없어요' : 'No results for "$q".';
   String get noWordsWithTag =>
-      _ko ? '이 태그에 저장된 단어가 없어요.' : 'No words with this tag.';
+      _ko ? '해당 태그의 단어가 없어요' : 'No words with this tag.';
   String get deleteTitle => _ko ? '단어 삭제' : 'Delete word?';
-  String deleteContent(String w) =>
-      _ko ? '"$w"를 Word Bank에서 삭제할까요?' : 'Remove "$w" from your Word Bank?';
+  String deleteContent(String w) => _ko
+      ? '"$w"를 Word Bank에서 삭제할까요?\n삭제해도 이번 달 저장 가능 횟수는 복구되지 않습니다.'
+      : 'Remove "$w" from your Word Bank?\nDeleting it will not restore your monthly save limit.';
   String get cancel => _ko ? '취소' : 'Cancel';
   String get delete => _ko ? '삭제' : 'Delete';
 
   // Settings sheet
   String get settingsTitle => _ko ? '설정' : 'Settings';
-  String get definitionLang => _ko ? '뜻 표시 언어' : 'Definition language';
+  String get definitionLang => _ko ? '정의 표시 언어' : 'Definition language';
   String get examplesLang =>
       _ko ? '예문 및 유의어 언어' : 'Examples & synonyms language';
   String get sameAsWord => _ko ? '단어와 동일' : 'Same as word';
@@ -57,20 +60,20 @@ class _S {
   String get freePlan => _ko ? '무료 플랜' : 'Free Plan';
   String get upgrade => _ko ? '업그레이드' : 'Upgrade';
   String get signOut => _ko ? '로그아웃' : 'Sign Out';
-  String get unlimitedLookup => _ko ? '무제한 AI 조회' : 'Unlimited AI lookups';
+  String get unlimitedLookup => _ko ? '더 많은 단어 저장' : 'More word storage';
   String monthlyUsage(int used, int limit) =>
-      _ko ? '이번 달 조회: $used / $limit' : 'This month: $used / $limit';
+      _ko ? '이번 달 단어 저장: $used / $limit' : 'This month: $used / $limit';
 
   // Usage banner
   String usageBanner(int used, int limit) =>
-      _ko ? '이번 달 AI 조회: $used/$limit' : 'AI lookups this month: $used/$limit';
+      _ko ? '이번 달 단어 저장: $used/$limit' : 'Words saved this month: $used/$limit';
   String usageLimit(int used, int limit) => _ko
-      ? '이번 달 무료 조회 한도 도달 ($used/$limit)'
-      : 'Monthly free limit reached ($used/$limit)';
+      ? '이번 달 무료 저장 한도 도달 ($used/$limit)'
+      : 'Monthly save limit reached ($used/$limit)';
   String get upgradeButton => _ko ? 'Premium 업그레이드' : 'Upgrade to Premium';
 }
 
-// ─── Library Screen ───
+// ??? Library Screen ???
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
 
@@ -86,6 +89,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   String _searchQuery = '';
   final _searchController = TextEditingController();
   String _uiLanguage = 'English';
+  StreamSubscription<User?>? _authSub;
 
   _S get _s => _S.of(_uiLanguage);
 
@@ -93,6 +97,21 @@ class _LibraryScreenState extends State<LibraryScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _authSub = FirebaseAuth.instance.authStateChanges().listen((user) async {
+      if (mounted) setState(() {});
+      if (mounted) {
+        context.read<SubscriptionService>().refreshStatus();
+      }
+      if (user != null) {
+        final words = await DatabaseHelper.instance.getAllWords();
+        await WordSyncService.syncAll(words);
+        final cloudWords = await WordSyncService.fetchAll();
+        for (final word in cloudWords) {
+          await DatabaseHelper.instance.upsertWordFromCloud(word);
+        }
+        if (mounted) _loadWords();
+      }
+    });
     _loadWords();
     _loadUiLanguage();
   }
@@ -112,6 +131,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _authSub?.cancel();
     _searchController.dispose();
     super.dispose();
   }
@@ -249,15 +269,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       ),
       body: Column(
         children: [
-          _UsageBanner(
-            s: _s,
-            onUpgrade: () => Navigator.of(context).push<bool>(
-              MaterialPageRoute(
-                builder: (_) => const PaywallScreen(),
-                fullscreenDialog: true,
-              ),
-            ),
-          ),
+          // Usage banner removed per UX decision.
           Expanded(child: _buildBody()),
         ],
       ),
@@ -352,7 +364,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   }
 }
 
-// ─── Word Card ───
+// ??? Word Card ???
 class _WordCard extends StatelessWidget {
   final Word word;
   final _S s;
@@ -468,7 +480,7 @@ class _WordCard extends StatelessWidget {
   }
 }
 
-// ─── Settings Sheet ───
+// ??? Settings Sheet ???
 class _SettingsSheet extends StatefulWidget {
   final _S s;
   final String uiLanguage;
@@ -511,8 +523,9 @@ class _SettingsSheetState extends State<_SettingsSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomPad = 20.0 + MediaQuery.of(context).viewPadding.bottom;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
+      padding: EdgeInsets.fromLTRB(24, 24, 24, bottomPad),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -574,7 +587,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
   }
 }
 
-// ─── Lang Dropdown ───
+// ??? Lang Dropdown ???
 class _LangDropdown extends StatelessWidget {
   final String? value;
   final List<String> options;
@@ -617,7 +630,7 @@ class _LangDropdown extends StatelessWidget {
   }
 }
 
-// ─── Usage Banner ───
+// ??? Usage Banner ???
 class _UsageBanner extends StatelessWidget {
   final _S s;
   final VoidCallback onUpgrade;
@@ -691,7 +704,7 @@ class _UsageBanner extends StatelessWidget {
   }
 }
 
-// ─── Account Sheet ───
+// ??? Account Sheet ???
 class _AccountSheet extends StatefulWidget {
   final _S s;
   final VoidCallback onRefresh;
@@ -723,10 +736,11 @@ class _AccountSheetState extends State<_AccountSheet> {
   Widget build(BuildContext context) {
     final s = widget.s;
     final user = FirebaseAuth.instance.currentUser;
+    final bottomPad = 20.0 + MediaQuery.of(context).viewPadding.bottom;
 
     if (user == null) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
+        padding: EdgeInsets.fromLTRB(24, 20, 24, bottomPad),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -734,19 +748,19 @@ class _AccountSheetState extends State<_AccountSheet> {
             Text(s.accountTitle,
                 style:
                     const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Text(
               s.signInDesc,
               style: const TextStyle(
                   fontSize: 14, color: Colors.black54, height: 1.5),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 12),
             ElevatedButton(
               onPressed: _goToLogin,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF2C3E50),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
+                padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12)),
                 elevation: 0,
@@ -764,7 +778,7 @@ class _AccountSheetState extends State<_AccountSheet> {
     final limit = SubscriptionService.freeLimit;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
+      padding: EdgeInsets.fromLTRB(24, 20, 24, bottomPad),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -772,7 +786,7 @@ class _AccountSheetState extends State<_AccountSheet> {
           Text(s.accountTitle,
               style:
                   const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 20),
+          const SizedBox(height: 10),
           Row(
             children: [
               CircleAvatar(
@@ -804,9 +818,9 @@ class _AccountSheetState extends State<_AccountSheet> {
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: const Color(0xFFF1F3F5),
               borderRadius: BorderRadius.circular(12),
@@ -850,7 +864,7 @@ class _AccountSheetState extends State<_AccountSheet> {
               ],
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,
             child: OutlinedButton(
@@ -858,7 +872,7 @@ class _AccountSheetState extends State<_AccountSheet> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: Colors.red,
                 side: const BorderSide(color: Colors.red),
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                padding: const EdgeInsets.symmetric(vertical: 10),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10)),
               ),

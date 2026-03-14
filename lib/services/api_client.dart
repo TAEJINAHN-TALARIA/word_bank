@@ -16,11 +16,13 @@ class LookupResult {
   final String word;
   final String? phonetic;
   final String meaningText; // formatted string for storage
+  final Map<String, dynamic> payload;
 
   const LookupResult({
     required this.word,
     this.phonetic,
     required this.meaningText,
+    required this.payload,
   });
 }
 
@@ -41,8 +43,10 @@ Future<LookupResult> lookupWord({
   final body = <String, String>{
     'word': word,
     'language': definitionLanguage,
-    'exampleLanguage': ?exampleLanguage,
   };
+  if (exampleLanguage != null) {
+    body['exampleLanguage'] = exampleLanguage;
+  }
 
   final headers = <String, String>{
     'Content-Type': 'application/json',
@@ -63,6 +67,7 @@ Future<LookupResult> lookupWord({
       word: data['word'] as String? ?? word,
       phonetic: data['phonetic'] as String?,
       meaningText: _formatMeanings(data),
+      payload: data,
     );
   }
 
@@ -85,21 +90,33 @@ String _formatMeanings(Map<String, dynamic> data) {
   for (final meaning in meanings) {
     final m = meaning as Map<String, dynamic>;
     final pos = m['pos'] as String? ?? '';
-    final definition = m['definition'] as String? ?? '';
-    final example = m['example'] as String?;
+    final definitions = (m['definitions'] as List?)?.cast<String>() ?? [];
+    final examples = (m['examples'] as List?)?.cast<String>() ?? [];
     final synonyms = (m['synonyms'] as List?)?.cast<String>() ?? [];
+    final antonyms = (m['antonyms'] as List?)?.cast<String>() ?? [];
 
     buffer.writeln('[$pos]');
-    buffer.writeln(definition);
+    if (definitions.isNotEmpty) {
+      for (final def in definitions) {
+        buffer.writeln('- $def');
+      }
+    }
 
-    if (example != null && example.isNotEmpty) {
+    if (examples.isNotEmpty) {
       buffer.writeln();
-      buffer.writeln('Example: $example');
+      buffer.writeln('Examples:');
+      for (final ex in examples) {
+        buffer.writeln('- $ex');
+      }
     }
 
     if (synonyms.isNotEmpty) {
       buffer.writeln();
       buffer.writeln('Synonyms: ${synonyms.join(', ')}');
+    }
+    if (antonyms.isNotEmpty) {
+      buffer.writeln();
+      buffer.writeln('Antonyms: ${antonyms.join(', ')}');
     }
 
     buffer.writeln();
