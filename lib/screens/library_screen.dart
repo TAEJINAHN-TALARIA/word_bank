@@ -114,12 +114,14 @@ class _LibraryScreenState extends State<LibraryScreen>
     });
     _loadWords();
     _loadUiLanguage();
+    DatabaseHelper.instance.retryPendingSync();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       context.read<SubscriptionService>().refreshStatus();
+      DatabaseHelper.instance.retryPendingSync();
     }
   }
 

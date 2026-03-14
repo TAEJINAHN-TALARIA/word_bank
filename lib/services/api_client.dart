@@ -90,10 +90,10 @@ String _formatMeanings(Map<String, dynamic> data) {
   for (final meaning in meanings) {
     final m = meaning as Map<String, dynamic>;
     final pos = m['pos'] as String? ?? '';
-    final definitions = (m['definitions'] as List?)?.cast<String>() ?? [];
-    final examples = (m['examples'] as List?)?.cast<String>() ?? [];
-    final synonyms = (m['synonyms'] as List?)?.cast<String>() ?? [];
-    final antonyms = (m['antonyms'] as List?)?.cast<String>() ?? [];
+    final definitions = (m['definitions'] as List?)?.whereType<String>().toList() ?? [];
+    final examples = (m['examples'] as List?)?.whereType<String>().toList() ?? [];
+    final synonyms = (m['synonyms'] as List?)?.whereType<String>().toList() ?? [];
+    final antonyms = (m['antonyms'] as List?)?.whereType<String>().toList() ?? [];
 
     buffer.writeln('[$pos]');
     if (definitions.isNotEmpty) {

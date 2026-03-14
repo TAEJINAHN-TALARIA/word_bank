@@ -1,4 +1,4 @@
-﻿import express from 'express';
+import express from 'express';
 import cors from 'cors';
 import Anthropic from '@anthropic-ai/sdk';
 import admin from 'firebase-admin';
@@ -9,7 +9,7 @@ const client = new Anthropic();
 app.use(cors());
 app.use(express.json());
 
-// ??? Firebase Admin 珥덇린??(FIREBASE_SERVICE_ACCOUNT ?섍꼍蹂?섍? ?덉쓣 ?뚮쭔) ???
+// Firebase Admin 초기화 (FIREBASE_SERVICE_ACCOUNT 환경변수가 있을 때만)
 let firebaseEnabled = false;
 const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
 if (serviceAccountJson) {
@@ -23,12 +23,12 @@ if (serviceAccountJson) {
     console.error('Firebase Admin init failed:', e);
   }
 } else {
-  console.warn('FIREBASE_SERVICE_ACCOUNT not set ??running without auth (dev mode)');
+  console.warn('FIREBASE_SERVICE_ACCOUNT not set — running without auth (dev mode)');
 }
 
 const FREE_MONTHLY_LIMIT = parseInt(process.env.FREE_MONTHLY_LIMIT ?? '50', 10);
 
-// ??? Firebase ?좏겙 寃利????
+// Firebase 토큰 검증
 async function verifyToken(
   authHeader: string | undefined,
 ): Promise<{ uid: string; isPremium: boolean } | null> {
@@ -49,37 +49,8 @@ async function verifyToken(
   }
 }
 
-// ??? Firestore ?붾퀎 ?ъ슜???뺤씤 諛?利앷? ???
-async function checkAndIncrementUsage(
-  uid: string,
-): Promise<{ allowed: boolean; count: number; limit: number }> {
-  const now = new Date();
-  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const usageRef = admin
-    .firestore()
-    .collection('users')
-    .doc(uid)
-    .collection('usage')
-    .doc(monthKey);
 
-  return admin.firestore().runTransaction(async (t) => {
-    const doc = await t.get(usageRef);
-    const currentCount = (doc.data()?.count as number) ?? 0;
-
-    if (currentCount >= FREE_MONTHLY_LIMIT) {
-      return { allowed: false, count: currentCount, limit: FREE_MONTHLY_LIMIT };
-    }
-
-    t.set(
-      usageRef,
-      { count: currentCount + 1, updatedAt: admin.firestore.FieldValue.serverTimestamp() },
-      { merge: true },
-    );
-    return { allowed: true, count: currentCount + 1, limit: FREE_MONTHLY_LIMIT };
-  });
-}
-
-// ??? 媛꾨떒???몃찓紐⑤━ ?덉씠??由щ???(IP??遺꾨떦 20?? ???
+// 간단한 인메모리 rate limiter (IP당 분당 20회)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
 function checkRateLimit(ip: string): boolean {
@@ -101,7 +72,7 @@ setInterval(() => {
   }
 }, 5 * 60_000);
 
-// ??? 吏???몄뼱 紐⑸줉 ???
+// 지원 언어 목록
 const SUPPORTED_LANGUAGES = new Set([
   '한국어',
   'English',
@@ -112,14 +83,22 @@ const SUPPORTED_LANGUAGES = new Set([
   'Deutsch',
 ]);
 
-// ??? POST /api/lookup ???
+// Firestore 캐시 문서 ID 생성
+// 허용 문자 외 모두 '_'로 치환, 최대 500자
+function buildCacheId(word: string, language: string, exampleLang: string): string {
+  return `${word.toLowerCase()}_${language}_${exampleLang}`
+    .replace(/[^a-zA-Z0-9가-힣ぁ-んァ-ン一-龯\-_]/g, '_')
+    .slice(0, 500);
+}
+
+// POST /api/lookup
 app.post('/api/lookup', async (req, res) => {
   const ip = req.ip ?? 'unknown';
   if (!checkRateLimit(ip)) {
     return res.status(429).json({ error: 'rate_limit' });
   }
 
-  // Auth 寃利?
+  // 인증 확인
   const userInfo = await verifyToken(req.headers.authorization);
   if (firebaseEnabled && !userInfo) {
     return res.status(401).json({ error: 'auth_required' });
@@ -152,6 +131,22 @@ app.post('/api/lookup', async (req, res) => {
 
   // No lookup quota check (quota is enforced on save)
 
+  // ── Firestore 공유 캐시 확인 ─────────────────────────────────────────────
+  // 같은 단어+언어 조합을 다른 유저가 이미 조회했다면 Claude API를 호출하지 않음
+  const cacheId = buildCacheId(trimmedWord, language, exampleLang);
+  if (firebaseEnabled) {
+    try {
+      const cacheDoc = await admin.firestore().collection('word_cache').doc(cacheId).get();
+      if (cacheDoc.exists) {
+        console.log(`Cache hit: ${cacheId}`);
+        return res.json(cacheDoc.data()!.payload);
+      }
+    } catch (e) {
+      // 캐시 조회 실패는 치명적이지 않으므로 API 호출로 폴백
+      console.error('Cache read failed, falling back to API:', e);
+    }
+  }
+
   // Always use Haiku for all plans
   const model = 'claude-haiku-4-5-20251001';
 
@@ -161,11 +156,11 @@ app.post('/api/lookup', async (req, res) => {
       max_tokens: 1024,
       system:
         'You are a multilingual dictionary API. Always respond with valid JSON only. ' +
-        'No markdown, no code blocks, no explanation ??just the raw JSON object.',
+        'No markdown, no code blocks, no explanation — just the raw JSON object.',
       messages: [
         {
           role: 'user',
-      content:
+          content:
             `Look up the word or phrase: "${trimmedWord}"\n\n` +
             `If the word exists, respond with this JSON:\n` +
             `{"word":"canonical spelling","phonetic":"IPA notation or null","meanings":[{"pos":"part of speech","definitions":["..."],"examples":["..."]}],"media":{"photos":[],"youtube":[]}}\n\n` +
@@ -186,7 +181,7 @@ app.post('/api/lookup', async (req, res) => {
 
     const raw =
       response.content[0].type === 'text' ? response.content[0].text.trim() : '';
-    // 留덊겕?ㅼ슫 肄붾뱶釉붾줉 ?쒓굅 (```json ... ``` ?먮뒗 ``` ... ```)
+    // 마크다운 코드블록 제거 (```json ... ``` 또는 ``` ... ```)
     const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
 
     let result: unknown;
@@ -195,6 +190,23 @@ app.post('/api/lookup', async (req, res) => {
     } catch {
       console.error('JSON parse failed. Raw response:', text);
       return res.status(500).json({ error: 'parse_error' });
+    }
+
+    // not_found는 캐시하지 않음 (오타나 존재하지 않는 단어)
+    const parsed = result as Record<string, unknown>;
+    if (firebaseEnabled && parsed.error !== 'not_found') {
+      admin
+        .firestore()
+        .collection('word_cache')
+        .doc(cacheId)
+        .set({
+          payload: result,
+          word: trimmedWord.toLowerCase(),
+          language,
+          exampleLanguage: exampleLang,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        })
+        .catch((e: unknown) => console.error('Cache write failed:', e));
     }
 
     return res.json(result);
@@ -211,7 +223,7 @@ app.post('/api/lookup', async (req, res) => {
   }
 });
 
-// ??? GET /api/usage ???
+// GET /api/usage
 app.get('/api/usage', async (req, res) => {
   if (!firebaseEnabled) {
     return res.json({ count: 0, limit: FREE_MONTHLY_LIMIT, isPremium: false });
@@ -240,7 +252,7 @@ app.get('/api/usage', async (req, res) => {
   return res.json({ count, limit: FREE_MONTHLY_LIMIT, isPremium: false });
 });
 
-// ??? POST /api/webhook/revenuecat (RevenueCat Webhook ?섏떊) ???
+// POST /api/webhook/revenuecat
 interface RevenueCatWebhookPayload {
   api_version: string;
   event: {
@@ -259,7 +271,11 @@ app.post('/api/webhook/revenuecat', async (req, res) => {
   }
 
   const secret = process.env.REVENUECAT_WEBHOOK_SECRET;
-  if (secret && req.headers['authorization'] !== secret) {
+  if (!secret) {
+    console.error('REVENUECAT_WEBHOOK_SECRET not configured — webhook rejected');
+    return res.status(503).json({ error: 'webhook_not_configured' });
+  }
+  if (req.headers['authorization'] !== secret) {
     return res.status(401).json({ error: 'unauthorized' });
   }
 
@@ -296,7 +312,7 @@ app.post('/api/webhook/revenuecat', async (req, res) => {
         break;
 
       case 'CANCELLATION':
-        // 援щ룆 痍⑥냼: 留뚮즺?쇨퉴吏 ?꾨━誘몄뾼 ?좎?, ?대깽?몃쭔 湲곕줉
+        // 구독 취소: 만료일까지는 프리미엄 유지, 갱신만 중단
         await userRef.set({
           lastWebhookEvent: event.type,
           lastWebhookAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -314,7 +330,7 @@ app.post('/api/webhook/revenuecat', async (req, res) => {
   return res.json({ received: true });
 });
 
-// ??? GET /health ???
+// GET /health
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', firebase: firebaseEnabled });
 });
