@@ -1,4 +1,5 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/language_prefs.dart';
 
@@ -103,6 +104,7 @@ class _LoginScreenState extends State<LoginScreen> {
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } catch (e) {
+      debugPrint('Login screen Google sign-in error: $e');
       if (mounted) setState(() => _error = _s.googleFail);
     } finally {
       if (mounted) setState(() => _isLoading = false);
