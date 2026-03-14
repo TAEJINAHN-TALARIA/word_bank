@@ -59,7 +59,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _showCenterMessage(String message) {
     final overlay = Overlay.of(context);
-    if (overlay == null) return;
 
     late OverlayEntry entry;
     entry = OverlayEntry(

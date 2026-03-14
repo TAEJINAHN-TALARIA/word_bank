@@ -415,7 +415,7 @@ class _MediaSection extends StatelessWidget {
               height: 160,
               width: double.infinity,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const SizedBox(
+              errorBuilder: (_, _, _) => const SizedBox(
                 height: 160,
                 child: Center(child: Icon(Icons.broken_image_outlined)),
               ),
@@ -435,7 +435,7 @@ class _MediaSection extends StatelessWidget {
                     height: 160,
                     width: double.infinity,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const SizedBox(
+                    errorBuilder: (_, _, _) => const SizedBox(
                       height: 160,
                       child:
                           Center(child: Icon(Icons.ondemand_video_outlined)),
