@@ -77,6 +77,21 @@ jobs:
             echo "$DEBUG_KEYSTORE" | base64 -d > ~/.android/debug.keystore
           fi
 
+      - name: Verify debug keystore SHA-1
+        run: |
+          if [ -f ~/.android/debug.keystore ]; then
+            keytool -list -v \
+              -keystore ~/.android/debug.keystore \
+              -alias androiddebugkey \
+              -storepass android -keypass android 2>/dev/null | grep "SHA1:"
+          else
+            echo "No custom debug.keystore found — using auto-generated one"
+            keytool -list -v \
+              -keystore ~/.android/debug.keystore \
+              -alias androiddebugkey \
+              -storepass android -keypass android 2>/dev/null | grep "SHA1:" || echo "Keystore not yet generated"
+          fi
+
       - name: Install dependencies
         run: flutter pub get
 
