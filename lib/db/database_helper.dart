@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/word.dart';
+import '../services/word_sync_service.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -19,14 +21,28 @@ class DatabaseHelper {
 
   Future<void> insertWord(Word word) async {
     final box = await _openBox;
-    await box.add({
+    final id = await box.add({
       'word': word.word,
       'phonetic': word.phonetic,
       'meaning': word.meaning,
+      'meaning_json': word.meaningJson,
+      'media': word.media,
       'context': word.context,
       'tags': word.tags.join(','),
       'created_at': word.createdAt.toIso8601String(),
     });
+    final synced = Word(
+      id: id,
+      word: word.word,
+      phonetic: word.phonetic,
+      meaning: word.meaning,
+      meaningJson: word.meaningJson,
+      media: word.media,
+      context: word.context,
+      tags: word.tags,
+      createdAt: word.createdAt,
+    );
+    unawaited(WordSyncService.upsertWord(synced));
   }
 
   Future<void> updateWord(Word word) async {
@@ -35,10 +51,13 @@ class DatabaseHelper {
       'word': word.word,
       'phonetic': word.phonetic,
       'meaning': word.meaning,
+      'meaning_json': word.meaningJson,
+      'media': word.media,
       'context': word.context,
       'tags': word.tags.join(','),
       'created_at': word.createdAt.toIso8601String(),
     });
+    unawaited(WordSyncService.upsertWord(word));
   }
 
   Future<List<Word>> getAllWords() async {
@@ -64,5 +83,21 @@ class DatabaseHelper {
   Future<void> deleteWord(int key) async {
     final box = await _openBox;
     await box.delete(key);
+    unawaited(WordSyncService.deleteWord(key));
+  }
+
+  Future<void> upsertWordFromCloud(Word word) async {
+    if (word.id == null) return;
+    final box = await _openBox;
+    await box.put(word.id, {
+      'word': word.word,
+      'phonetic': word.phonetic,
+      'meaning': word.meaning,
+      'meaning_json': word.meaningJson,
+      'media': word.media,
+      'context': word.context,
+      'tags': word.tags.join(','),
+      'created_at': word.createdAt.toIso8601String(),
+    });
   }
 }

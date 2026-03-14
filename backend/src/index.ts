@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import cors from 'cors';
 import Anthropic from '@anthropic-ai/sdk';
 import admin from 'firebase-admin';
@@ -9,7 +9,7 @@ const client = new Anthropic();
 app.use(cors());
 app.use(express.json());
 
-// ─── Firebase Admin 초기화 (FIREBASE_SERVICE_ACCOUNT 환경변수가 있을 때만) ───
+// ??? Firebase Admin 珥덇린??(FIREBASE_SERVICE_ACCOUNT ?섍꼍蹂?섍? ?덉쓣 ?뚮쭔) ???
 let firebaseEnabled = false;
 const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
 if (serviceAccountJson) {
@@ -23,12 +23,12 @@ if (serviceAccountJson) {
     console.error('Firebase Admin init failed:', e);
   }
 } else {
-  console.warn('FIREBASE_SERVICE_ACCOUNT not set — running without auth (dev mode)');
+  console.warn('FIREBASE_SERVICE_ACCOUNT not set ??running without auth (dev mode)');
 }
 
 const FREE_MONTHLY_LIMIT = parseInt(process.env.FREE_MONTHLY_LIMIT ?? '50', 10);
 
-// ─── Firebase 토큰 검증 ───
+// ??? Firebase ?좏겙 寃利????
 async function verifyToken(
   authHeader: string | undefined,
 ): Promise<{ uid: string; isPremium: boolean } | null> {
@@ -49,7 +49,7 @@ async function verifyToken(
   }
 }
 
-// ─── Firestore 월별 사용량 확인 및 증가 ───
+// ??? Firestore ?붾퀎 ?ъ슜???뺤씤 諛?利앷? ???
 async function checkAndIncrementUsage(
   uid: string,
 ): Promise<{ allowed: boolean; count: number; limit: number }> {
@@ -79,7 +79,7 @@ async function checkAndIncrementUsage(
   });
 }
 
-// ─── 간단한 인메모리 레이트 리미터 (IP당 분당 20회) ───
+// ??? 媛꾨떒???몃찓紐⑤━ ?덉씠??由щ???(IP??遺꾨떦 20?? ???
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
 function checkRateLimit(ip: string): boolean {
@@ -101,35 +101,28 @@ setInterval(() => {
   }
 }, 5 * 60_000);
 
-// ─── 지원 언어 목록 ───
+// ??? 吏???몄뼱 紐⑸줉 ???
 const SUPPORTED_LANGUAGES = new Set([
-  '한국어', 'English', '日本語', '中文', 'Español', 'Français', 'Deutsch',
+  '한국어',
+  'English',
+  '中文',
+  '日本語',
+  'Español',
+  'Français',
+  'Deutsch',
 ]);
 
-// ─── POST /api/lookup ───
+// ??? POST /api/lookup ???
 app.post('/api/lookup', async (req, res) => {
   const ip = req.ip ?? 'unknown';
   if (!checkRateLimit(ip)) {
     return res.status(429).json({ error: 'rate_limit' });
   }
 
-  // Auth 검증
+  // Auth 寃利?
   const userInfo = await verifyToken(req.headers.authorization);
   if (firebaseEnabled && !userInfo) {
     return res.status(401).json({ error: 'auth_required' });
-  }
-
-  // 무료 사용량 체크
-  let usageResult: { allowed: boolean; count: number; limit: number } | null = null;
-  if (firebaseEnabled && userInfo && !userInfo.isPremium) {
-    usageResult = await checkAndIncrementUsage(userInfo.uid);
-    if (!usageResult.allowed) {
-      return res.status(429).json({
-        error: 'quota_exceeded',
-        count: usageResult.count,
-        limit: usageResult.limit,
-      });
-    }
   }
 
   const { word, language, exampleLanguage } = req.body as {
@@ -157,11 +150,10 @@ app.post('/api/lookup', async (req, res) => {
       ? exampleLanguage
       : 'the same language as the input word';
 
-  // 무료 → Haiku (저비용), 프리미엄 → Opus (고품질)
-  const model =
-    firebaseEnabled && userInfo?.isPremium
-      ? 'claude-opus-4-6'
-      : 'claude-haiku-4-5-20251001';
+  // No lookup quota check (quota is enforced on save)
+
+  // Always use Haiku for all plans
+  const model = 'claude-haiku-4-5-20251001';
 
   try {
     const response = await client.messages.create({
@@ -169,20 +161,24 @@ app.post('/api/lookup', async (req, res) => {
       max_tokens: 1024,
       system:
         'You are a multilingual dictionary API. Always respond with valid JSON only. ' +
-        'No markdown, no code blocks, no explanation — just the raw JSON object.',
+        'No markdown, no code blocks, no explanation ??just the raw JSON object.',
       messages: [
         {
           role: 'user',
-          content:
+      content:
             `Look up the word or phrase: "${trimmedWord}"\n\n` +
             `If the word exists, respond with this JSON:\n` +
-            `{"word":"canonical spelling","phonetic":"IPA notation or null","meanings":[{"pos":"part of speech","definition":"...","example":"...or null","synonyms":["..."]}]}\n\n` +
+            `{"word":"canonical spelling","phonetic":"IPA notation or null","meanings":[{"pos":"part of speech","definitions":["..."],"examples":["..."]}],"media":{"photos":[],"youtube":[]}}\n\n` +
             `Rules:\n` +
             `- Detect the input word's language automatically\n` +
             `- Provide up to 2 meanings\n` +
-            `- definition: write in ${language}\n` +
-            `- example: write in ${exampleLang}, or null if unavailable\n` +
-            `- synonyms: write in ${exampleLang}, up to 3 items, can be empty []\n` +
+            `- definitions: write in ${language}, up to 3 items\n` +
+            `- examples: write in ${exampleLang}, exactly 1 full sentence (18–30 words) showing real-world, natural usage with clear context\n` +
+            `  * include a plausible setting, speaker, or situation\n` +
+            `  * avoid generic templates ("I like...", "This is...") and avoid dictionary-style fragments\n` +
+            `  * ensure the target word/phrase appears once and feels idiomatic\n` +
+            `  * if no good example exists, return []\n` +
+            `- media.photos and media.youtube must be arrays; leave them empty []\n` +
             `- If the word/phrase does not exist, respond with: {"error":"not_found"}`,
         },
       ],
@@ -190,7 +186,7 @@ app.post('/api/lookup', async (req, res) => {
 
     const raw =
       response.content[0].type === 'text' ? response.content[0].text.trim() : '';
-    // 마크다운 코드블록 제거 (```json ... ``` 또는 ``` ... ```)
+    // 留덊겕?ㅼ슫 肄붾뱶釉붾줉 ?쒓굅 (```json ... ``` ?먮뒗 ``` ... ```)
     const text = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
 
     let result: unknown;
@@ -199,12 +195,6 @@ app.post('/api/lookup', async (req, res) => {
     } catch {
       console.error('JSON parse failed. Raw response:', text);
       return res.status(500).json({ error: 'parse_error' });
-    }
-
-    // 사용량 헤더 추가
-    if (usageResult) {
-      res.setHeader('X-Usage-Count', usageResult.count.toString());
-      res.setHeader('X-Usage-Limit', usageResult.limit.toString());
     }
 
     return res.json(result);
@@ -221,7 +211,7 @@ app.post('/api/lookup', async (req, res) => {
   }
 });
 
-// ─── GET /api/usage ───
+// ??? GET /api/usage ???
 app.get('/api/usage', async (req, res) => {
   if (!firebaseEnabled) {
     return res.json({ count: 0, limit: FREE_MONTHLY_LIMIT, isPremium: false });
@@ -250,7 +240,7 @@ app.get('/api/usage', async (req, res) => {
   return res.json({ count, limit: FREE_MONTHLY_LIMIT, isPremium: false });
 });
 
-// ─── POST /api/webhook/revenuecat (RevenueCat Webhook 수신) ───
+// ??? POST /api/webhook/revenuecat (RevenueCat Webhook ?섏떊) ???
 interface RevenueCatWebhookPayload {
   api_version: string;
   event: {
@@ -306,7 +296,7 @@ app.post('/api/webhook/revenuecat', async (req, res) => {
         break;
 
       case 'CANCELLATION':
-        // 구독 취소: 만료일까지 프리미엄 유지, 이벤트만 기록
+        // 援щ룆 痍⑥냼: 留뚮즺?쇨퉴吏 ?꾨━誘몄뾼 ?좎?, ?대깽?몃쭔 湲곕줉
         await userRef.set({
           lastWebhookEvent: event.type,
           lastWebhookAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -324,7 +314,7 @@ app.post('/api/webhook/revenuecat', async (req, res) => {
   return res.json({ received: true });
 });
 
-// ─── GET /health ───
+// ??? GET /health ???
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', firebase: firebaseEnabled });
 });

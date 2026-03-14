@@ -2,15 +2,17 @@ import 'package:flutter/material.dart';
 
 class MeaningSection {
   final String pos;
-  final String definition;
-  final String? example;
+  final List<String> definitions;
+  final List<String> examples;
   final List<String> synonyms;
+  final List<String> antonyms;
 
   const MeaningSection({
     required this.pos,
-    required this.definition,
-    this.example,
+    required this.definitions,
+    this.examples = const [],
     this.synonyms = const [],
+    this.antonyms = const [],
   });
 }
 
@@ -18,21 +20,26 @@ List<MeaningSection> parseMeaningSections(String meaning) {
   final lines = meaning.split('\n');
   final sections = <MeaningSection>[];
   String? currentPos;
-  final defBuffer = StringBuffer();
-  String? currentExample;
-  List<String> currentSynonyms = [];
+  final currentDefinitions = <String>[];
+  final currentExamples = <String>[];
+  List<String> currentSynonyms = <String>[];
+  List<String> currentAntonyms = <String>[];
+  bool inExamples = false;
 
   void flush() {
     if (currentPos == null) return;
     sections.add(MeaningSection(
       pos: currentPos,
-      definition: defBuffer.toString().trim(),
-      example: currentExample,
-      synonyms: currentSynonyms,
+      definitions: List<String>.from(currentDefinitions),
+      examples: List<String>.from(currentExamples),
+      synonyms: List<String>.from(currentSynonyms),
+      antonyms: List<String>.from(currentAntonyms),
     ));
-    defBuffer.clear();
-    currentExample = null;
-    currentSynonyms = [];
+    currentDefinitions.clear();
+    currentExamples.clear();
+    currentSynonyms = <String>[];
+    currentAntonyms = <String>[];
+    inExamples = false;
   }
 
   for (final line in lines) {
@@ -41,8 +48,21 @@ List<MeaningSection> parseMeaningSections(String meaning) {
     if (posMatch != null) {
       flush();
       currentPos = posMatch.group(1)!;
+    } else if (trimmed == 'Examples:' || trimmed == 'Example:') {
+      inExamples = true;
+    } else if (trimmed.startsWith('- ')) {
+      final item = trimmed.substring(2).trim();
+      if (item.isEmpty) continue;
+      if (inExamples) {
+        currentExamples.add(item);
+      } else if (currentPos != null) {
+        currentDefinitions.add(item);
+      }
     } else if (trimmed.startsWith('Example: ')) {
-      currentExample = trimmed.substring('Example: '.length).trim();
+      final ex = trimmed.substring('Example: '.length).trim();
+      if (ex.isNotEmpty) {
+        currentExamples.add(ex);
+      }
     } else if (trimmed.startsWith('Synonyms: ')) {
       currentSynonyms = trimmed
           .substring('Synonyms: '.length)
@@ -50,8 +70,17 @@ List<MeaningSection> parseMeaningSections(String meaning) {
           .map((s) => s.trim())
           .where((s) => s.isNotEmpty)
           .toList();
+    } else if (trimmed.startsWith('Antonyms: ')) {
+      currentAntonyms = trimmed
+          .substring('Antonyms: '.length)
+          .split(',')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
     } else if (currentPos != null) {
-      defBuffer.writeln(line);
+      if (trimmed.isNotEmpty) {
+        currentDefinitions.add(trimmed);
+      }
     }
   }
   flush();
@@ -161,6 +190,7 @@ class MeaningCardDisplay extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: sections.take(2).map((s) {
+        final def = s.definitions.isNotEmpty ? s.definitions.first : '';
         return Padding(
           padding: const EdgeInsets.only(bottom: 4),
           child: Row(
@@ -172,7 +202,7 @@ class MeaningCardDisplay extends StatelessWidget {
               ),
               Expanded(
                 child: Text(
-                  s.definition,
+                  def.isNotEmpty ? def : '',
                   style: const TextStyle(fontSize: 13, color: Colors.black87, height: 1.45),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -224,11 +254,38 @@ class MeaningDetailDisplay extends StatelessWidget {
             children: [
               _posChip(s.pos),
               const SizedBox(height: 8),
-              Text(
-                s.definition,
-                style: const TextStyle(fontSize: 14, height: 1.6, color: Color(0xFF2C3E50)),
-              ),
-              if (s.example != null) ...[
+              if (s.definitions.isNotEmpty)
+                ...List.generate(s.definitions.length, (i) {
+                  final d = s.definitions[i];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${i + 1}. ',
+                          style: const TextStyle(
+                            fontSize: 14,
+                            height: 1.6,
+                            color: Color(0xFF2C3E50),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Expanded(
+                          child: Text(
+                            d,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              height: 1.6,
+                              color: Color(0xFF2C3E50),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }),
+              if (s.examples.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -236,14 +293,24 @@ class MeaningDetailDisplay extends StatelessWidget {
                     const Icon(Icons.format_quote, size: 14, color: Colors.black38),
                     const SizedBox(width: 4),
                     Expanded(
-                      child: Text(
-                        s.example!,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Colors.black54,
-                          fontStyle: FontStyle.italic,
-                          height: 1.5,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: s.examples
+                            .map(
+                              (ex) => Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Text(
+                                  ex,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.black54,
+                                    fontStyle: FontStyle.italic,
+                                    height: 1.5,
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
                       ),
                     ),
                   ],
@@ -269,6 +336,35 @@ class MeaningDetailDisplay extends StatelessWidget {
                           ),
                           child: Text(
                             syn,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF2C3E50),
+                            ),
+                          ),
+                        )),
+                  ],
+                ),
+              ],
+              if (s.antonyms.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Text(
+                      'ant',
+                      style: TextStyle(fontSize: 11, color: Colors.black38),
+                    ),
+                    ...s.antonyms.map((ant) => Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: const Color(0xFFCDD5DE)),
+                          ),
+                          child: Text(
+                            ant,
                             style: const TextStyle(
                               fontSize: 12,
                               color: Color(0xFF2C3E50),

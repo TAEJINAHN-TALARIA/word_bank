@@ -3,10 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 import '../db/database_helper.dart';
 import '../models/word.dart';
 import '../services/api_client.dart';
 import '../services/language_prefs.dart';
+import '../services/subscription_service.dart';
+import '../widgets/meaning_display.dart';
 import 'paywall_screen.dart';
 
 class AddWordSheet extends StatefulWidget {
@@ -24,6 +27,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
   bool _networkError = false;
   String? _searchResult;
   String? _phonetic;
+  Map<String, dynamic>? _lookupPayload;
   List<String> _existingTags = [];
   List<String> _wordSuggestions = [];
   Timer? _debounce;
@@ -40,6 +44,9 @@ class _AddWordSheetState extends State<AddWordSheet> {
   final _contextController = TextEditingController();
   final _tagController = TextEditingController();
   final List<String> _tags = [];
+  final _imageUrlController = TextEditingController();
+  final _youtubeUrlController = TextEditingController();
+  final List<Map<String, dynamic>> _mediaItems = [];
 
   static const _posList = ['noun', 'verb', 'adjective', 'adverb', 'other'];
 
@@ -118,6 +125,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
         setState(() {
           _searchResult = result.meaningText;
           _phonetic = result.phonetic;
+          _lookupPayload = result.payload;
         });
         _wordController.text = result.word;
       }
@@ -170,6 +178,98 @@ class _AddWordSheetState extends State<AddWordSheet> {
     _tagController.clear();
   }
 
+  void _addMediaItem(String type, String url) {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return;
+    setState(() {
+      _mediaItems.add({'type': type, 'url': trimmed});
+    });
+  }
+
+  void _addImageUrl() {
+    _addMediaItem('image', _imageUrlController.text);
+    _imageUrlController.clear();
+  }
+
+  void _addYoutubeUrl() {
+    _addMediaItem('youtube', _youtubeUrlController.text);
+    _youtubeUrlController.clear();
+  }
+
+  List<Map<String, dynamic>> _extractMedia(Map<String, dynamic>? payload) {
+    if (payload == null) return const [];
+    final media = payload['media'];
+    if (media is! Map) return const [];
+
+    final items = <Map<String, dynamic>>[];
+    final photos = media['photos'];
+    final youtube = media['youtube'];
+
+    if (photos is List) {
+      for (final p in photos) {
+        if (p is Map) {
+          items.add({
+            'type': 'image',
+            ...Map<String, dynamic>.from(p),
+          });
+        } else if (p is String) {
+          items.add({'type': 'image', 'url': p});
+        }
+      }
+    }
+    if (youtube is List) {
+      for (final y in youtube) {
+        if (y is Map) {
+          items.add({
+            'type': 'youtube',
+            ...Map<String, dynamic>.from(y),
+          });
+        } else if (y is String) {
+          items.add({'type': 'youtube', 'url': y});
+        }
+      }
+    }
+
+    return items;
+  }
+
+  Map<String, List<Map<String, dynamic>>> _buildMediaPayload(
+      List<Map<String, dynamic>> items) {
+    final photos = <Map<String, dynamic>>[];
+    final youtube = <Map<String, dynamic>>[];
+    for (final item in items) {
+      final type = item['type'];
+      if (type == 'image') {
+        photos.add({'url': item['url']});
+      } else if (type == 'youtube') {
+        youtube.add({'url': item['url']});
+      }
+    }
+    return {'photos': photos, 'youtube': youtube};
+  }
+
+  Future<bool> _checkAndHandleSaveLimit() async {
+    final service = context.read<SubscriptionService>();
+    if (service.isPremium) return true;
+
+    final count = await SubscriptionService.getMonthlySaveCount();
+    if (count >= SubscriptionService.freeLimit) {
+      if (!mounted) return false;
+      Navigator.of(context).pop();
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => PaywallScreen(
+            used: count,
+            limit: SubscriptionService.freeLimit,
+          ),
+          fullscreenDialog: true,
+        ),
+      );
+      return false;
+    }
+    return true;
+  }
+
   Future<bool> _confirmSaveDespiteDuplicate(String wordText) async {
     return await showDialog<bool>(
           context: context,
@@ -210,16 +310,33 @@ class _AddWordSheetState extends State<AddWordSheet> {
       final confirmed = await _confirmSaveDespiteDuplicate(wordText);
       if (!confirmed) return;
     }
+    final canSave = await _checkAndHandleSaveLimit();
+    if (!canSave) return;
+    final combinedMedia = [
+      ..._extractMedia(_lookupPayload),
+      ..._mediaItems,
+    ];
     final word = Word(
       word: wordText,
       phonetic: _phonetic,
       meaning: _searchResult!,
+      meaningJson: _lookupPayload != null
+          ? {
+              ..._lookupPayload!,
+              'media': _buildMediaPayload(combinedMedia),
+            }
+          : null,
+      media: combinedMedia,
       context: _contextController.text.trim().isNotEmpty
           ? _contextController.text.trim()
           : null,
       tags: _tags,
     );
     await DatabaseHelper.instance.insertWord(word);
+    await SubscriptionService.incrementMonthlySaveCount();
+    if (mounted) {
+      context.read<SubscriptionService>().refreshStatus();
+    }
     if (mounted) Navigator.pop(context);
   }
 
@@ -242,6 +359,8 @@ class _AddWordSheetState extends State<AddWordSheet> {
       final confirmed = await _confirmSaveDespiteDuplicate(wordText);
       if (!confirmed) return;
     }
+    final canSave = await _checkAndHandleSaveLimit();
+    if (!canSave) return;
 
     final buffer = StringBuffer();
     buffer.writeln('[$_manualPos]');
@@ -252,15 +371,35 @@ class _AddWordSheetState extends State<AddWordSheet> {
       buffer.writeln('Example: $example');
     }
 
+    final manualMediaPayload = _buildMediaPayload(_mediaItems);
     final word = Word(
       word: wordText,
       meaning: buffer.toString().trim(),
+      meaningJson: {
+        'word': wordText,
+        'phonetic': null,
+        'meanings': [
+          {
+            'pos': _manualPos,
+            'definitions': [meaning],
+            'examples': example.isNotEmpty ? [example] : <String>[],
+            'synonyms': <String>[],
+            'antonyms': <String>[],
+          }
+        ],
+        'media': manualMediaPayload,
+      },
+      media: _mediaItems,
       context: _contextController.text.trim().isNotEmpty
           ? _contextController.text.trim()
           : null,
       tags: _tags,
     );
     await DatabaseHelper.instance.insertWord(word);
+    await SubscriptionService.incrementMonthlySaveCount();
+    if (mounted) {
+      context.read<SubscriptionService>().refreshStatus();
+    }
     if (mounted) Navigator.pop(context);
   }
 
@@ -270,6 +409,8 @@ class _AddWordSheetState extends State<AddWordSheet> {
     _wordController.dispose();
     _contextController.dispose();
     _tagController.dispose();
+    _imageUrlController.dispose();
+    _youtubeUrlController.dispose();
     _manualMeaningController.dispose();
     _manualExampleController.dispose();
     super.dispose();
@@ -326,14 +467,12 @@ class _AddWordSheetState extends State<AddWordSheet> {
                 color: const Color(0xFFF1F3F5),
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Text(
-                _searchResult!,
-                style: const TextStyle(
-                    fontSize: 15, height: 1.5, color: Color(0xFF2C3E50)),
-              ),
+              child: MeaningDetailDisplay(meaning: _searchResult!),
             ),
             const SizedBox(height: 16),
             ..._tagSection(),
+            const SizedBox(height: 12),
+            ..._mediaSection(),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: _saveWord,
@@ -409,6 +548,8 @@ class _AddWordSheetState extends State<AddWordSheet> {
             ),
             const SizedBox(height: 14),
             ..._tagSection(),
+            const SizedBox(height: 12),
+            ..._mediaSection(),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: _manualMeaningController.text.trim().isNotEmpty
@@ -715,6 +856,81 @@ class _AddWordSheetState extends State<AddWordSheet> {
           ],
         );
       }(),
+    ];
+  }
+
+  List<Widget> _mediaSection() {
+    return [
+      const Text(
+        'Add media (optional)',
+        style: TextStyle(fontSize: 12, color: Colors.black45),
+      ),
+      const SizedBox(height: 6),
+      Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _imageUrlController,
+              decoration: const InputDecoration(
+                labelText: 'Image URL',
+                hintText: 'https://...',
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton.filled(
+            onPressed: _addImageUrl,
+            icon: const Icon(Icons.add_photo_alternate_outlined),
+            style: IconButton.styleFrom(
+                backgroundColor: const Color(0xFF2C3E50)),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _youtubeUrlController,
+              decoration: const InputDecoration(
+                labelText: 'YouTube URL',
+                hintText: 'https://youtu.be/...',
+                floatingLabelBehavior: FloatingLabelBehavior.always,
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton.filled(
+            onPressed: _addYoutubeUrl,
+            icon: const Icon(Icons.ondemand_video_outlined),
+            style: IconButton.styleFrom(
+                backgroundColor: const Color(0xFF2C3E50)),
+          ),
+        ],
+      ),
+      if (_mediaItems.isNotEmpty) ...[
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 6,
+          runSpacing: 4,
+          children: _mediaItems.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final item = entry.value;
+            final label = '${item['type']}: ${item['url']}';
+            return Chip(
+              label: Text(label, style: const TextStyle(fontSize: 12)),
+              deleteIcon: const Icon(Icons.close, size: 16),
+              onDeleted: () => setState(() => _mediaItems.removeAt(idx)),
+              backgroundColor: const Color(0xFFEFF3F6),
+            );
+          }).toList(),
+        ),
+      ],
     ];
   }
 }

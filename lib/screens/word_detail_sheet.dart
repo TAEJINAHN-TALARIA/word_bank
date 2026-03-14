@@ -20,15 +20,22 @@ class _WordDetailSheetState extends State<WordDetailSheet> {
   late TextEditingController _contextController;
   final _tagController = TextEditingController();
   List<String> _existingTags = [];
+  final _imageUrlController = TextEditingController();
+  final _youtubeUrlController = TextEditingController();
+  List<Map<String, dynamic>> _mediaItems = [];
 
   @override
   void initState() {
     super.initState();
     _tags = List.from(widget.word.tags);
+    _mediaItems =
+        widget.word.media.map((e) => Map<String, dynamic>.from(e)).toList();
     _contextController =
         TextEditingController(text: widget.word.context ?? '');
     _loadExistingTags();
   }
+
+
 
   Future<void> _loadExistingTags() async {
     final words = await DatabaseHelper.instance.getAllWords();
@@ -44,12 +51,53 @@ class _WordDetailSheetState extends State<WordDetailSheet> {
     _tagController.clear();
   }
 
+  void _addMediaItem(String type, String url) {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return;
+    setState(() {
+      _mediaItems.add({'type': type, 'url': trimmed});
+    });
+  }
+
+  void _addImageUrl() {
+    _addMediaItem('image', _imageUrlController.text);
+    _imageUrlController.clear();
+  }
+
+  void _addYoutubeUrl() {
+    _addMediaItem('youtube', _youtubeUrlController.text);
+    _youtubeUrlController.clear();
+  }
+
+  Map<String, List<Map<String, dynamic>>> _buildMediaPayload(
+      List<Map<String, dynamic>> items) {
+    final photos = <Map<String, dynamic>>[];
+    final youtube = <Map<String, dynamic>>[];
+    for (final item in items) {
+      final type = item['type'];
+      if (type == 'image') {
+        photos.add({'url': item['url']});
+      } else if (type == 'youtube') {
+        youtube.add({'url': item['url']});
+      }
+    }
+    return {'photos': photos, 'youtube': youtube};
+  }
+
   Future<void> _saveChanges() async {
+    final updatedMeaningJson = widget.word.meaningJson != null
+        ? {
+            ...widget.word.meaningJson!,
+            'media': _buildMediaPayload(_mediaItems),
+          }
+        : null;
     final updated = Word(
       id: widget.word.id,
       word: widget.word.word,
       phonetic: widget.word.phonetic,
       meaning: widget.word.meaning,
+      meaningJson: updatedMeaningJson,
+      media: _mediaItems,
       context: _contextController.text.trim().isNotEmpty
           ? _contextController.text.trim()
           : null,
@@ -65,6 +113,8 @@ class _WordDetailSheetState extends State<WordDetailSheet> {
   void dispose() {
     _contextController.dispose();
     _tagController.dispose();
+    _imageUrlController.dispose();
+    _youtubeUrlController.dispose();
     super.dispose();
   }
 
@@ -114,6 +164,9 @@ class _WordDetailSheetState extends State<WordDetailSheet> {
                   _isEditing = !_isEditing;
                   if (!_isEditing) {
                     _tags = List.from(widget.word.tags);
+                    _mediaItems = widget.word.media
+                        .map((e) => Map<String, dynamic>.from(e))
+                        .toList();
                     _contextController.text = widget.word.context ?? '';
                   }
                 }),
@@ -131,6 +184,13 @@ class _WordDetailSheetState extends State<WordDetailSheet> {
 
           // View mode: context + tags
           if (!_isEditing) ...[
+            if (widget.word.media.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              const Text('Media',
+                  style: TextStyle(fontSize: 12, color: Colors.black45)),
+              const SizedBox(height: 6),
+              _MediaSection(items: widget.word.media),
+            ],
             if (widget.word.context != null) ...[
               const SizedBox(height: 14),
               const Text('Context',
@@ -245,8 +305,78 @@ class _WordDetailSheetState extends State<WordDetailSheet> {
                         .toList(),
                   ),
                 ],
-              );
+                );
             }(),
+            const SizedBox(height: 12),
+            const Text('Media',
+                style: TextStyle(fontSize: 12, color: Colors.black45)),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _imageUrlController,
+                    decoration: const InputDecoration(
+                      labelText: 'Image URL',
+                      hintText: 'https://...',
+                      floatingLabelBehavior: FloatingLabelBehavior.always,
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: _addImageUrl,
+                  icon: const Icon(Icons.add_photo_alternate_outlined),
+                  style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFF2C3E50)),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _youtubeUrlController,
+                    decoration: const InputDecoration(
+                      labelText: 'YouTube URL',
+                      hintText: 'https://youtu.be/...',
+                      floatingLabelBehavior: FloatingLabelBehavior.always,
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  onPressed: _addYoutubeUrl,
+                  icon: const Icon(Icons.ondemand_video_outlined),
+                  style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFF2C3E50)),
+                ),
+              ],
+            ),
+            if (_mediaItems.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: _mediaItems.asMap().entries.map((entry) {
+                  final idx = entry.key;
+                  final item = entry.value;
+                  final label = '${item['type']}: ${item['url']}';
+                  return Chip(
+                    label: Text(label, style: const TextStyle(fontSize: 12)),
+                    deleteIcon: const Icon(Icons.close, size: 16),
+                    onDeleted: () =>
+                        setState(() => _mediaItems.removeAt(idx)),
+                    backgroundColor: const Color(0xFFEFF3F6),
+                  );
+                }).toList(),
+              ),
+            ],
             const SizedBox(height: 20),
             FilledButton(
               onPressed: _saveChanges,
@@ -256,6 +386,142 @@ class _WordDetailSheetState extends State<WordDetailSheet> {
               ),
               child: const Text('Save Changes',
                   style: TextStyle(fontSize: 16)),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MediaSection extends StatelessWidget {
+  final List<Map<String, dynamic>> items;
+
+  const _MediaSection({required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: items.map((item) {
+        final type = item['type'] as String? ?? 'link';
+        final url = item['url'] as String? ?? '';
+        if (type == 'image') {
+          return _MediaCard(
+            icon: Icons.image_outlined,
+            title: 'Image',
+            url: url,
+            preview: Image.network(
+              url,
+              height: 160,
+              width: double.infinity,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const SizedBox(
+                height: 160,
+                child: Center(child: Icon(Icons.broken_image_outlined)),
+              ),
+            ),
+          );
+        }
+        if (type == 'youtube') {
+          final thumb = _youtubeThumbnail(url);
+          return _MediaCard(
+            icon: Icons.ondemand_video_outlined,
+            title: 'YouTube',
+            url: url,
+            preview: thumb == null
+                ? null
+                : Image.network(
+                    thumb,
+                    height: 160,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => const SizedBox(
+                      height: 160,
+                      child:
+                          Center(child: Icon(Icons.ondemand_video_outlined)),
+                    ),
+                  ),
+          );
+        }
+        return _MediaCard(
+          icon: Icons.link,
+          title: 'Link',
+          url: url,
+        );
+      }).toList(),
+    );
+  }
+
+  String? _youtubeThumbnail(String url) {
+    try {
+      final uri = Uri.parse(url);
+      String? id;
+      if (uri.host.contains('youtu.be')) {
+        id = uri.pathSegments.isNotEmpty ? uri.pathSegments.first : null;
+      } else if (uri.host.contains('youtube.com')) {
+        id = uri.queryParameters['v'];
+      }
+      if (id == null || id.isEmpty) return null;
+      return 'https://img.youtube.com/vi/$id/0.jpg';
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
+class _MediaCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String url;
+  final Widget? preview;
+
+  const _MediaCard({
+    required this.icon,
+    required this.title,
+    required this.url,
+    this.preview,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F3F5),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: const Color(0xFF2C3E50)),
+              const SizedBox(width: 6),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF2C3E50),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          if (preview != null) ...[
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: preview!,
+            ),
+          ],
+          if (url.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              url,
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
           ],
         ],
