@@ -44,6 +44,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   String? _error;
   String _uiLanguage = 'English';
+  bool _showDebugLog = false;
 
   _S get _s => _S.of(_uiLanguage);
 
@@ -96,6 +97,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _isLoading = true;
       _error = null;
+      _showDebugLog = false;
     });
     try {
       final credential = await AuthService.signInWithGoogle();
@@ -107,7 +109,12 @@ class _LoginScreenState extends State<LoginScreen> {
       debugPrint('Login screen Google sign-in error: $e');
       if (mounted) setState(() => _error = _s.googleFail);
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _showDebugLog = AuthService.debugLogs.isNotEmpty;
+        });
+      }
     }
   }
 
@@ -134,10 +141,9 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Icon(
@@ -266,6 +272,29 @@ class _LoginScreenState extends State<LoginScreen> {
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 11, color: Colors.black38),
               ),
+              // ── 임시 디버그 로그 패널 (APK 디버깅용) ──
+              if (_showDebugLog && AuthService.debugLogs.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E1E1E),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: SingleChildScrollView(
+                    child: SelectableText(
+                      AuthService.debugLogs.join('\n'),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Color(0xFF00FF00),
+                        fontFamily: 'monospace',
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
