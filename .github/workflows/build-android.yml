@@ -142,13 +142,25 @@ jobs:
         run: flutter build apk --debug --dart-define=BACKEND_URL=${{ secrets.BACKEND_URL }}
 
       - name: Print APK signing SHA-1
+        continue-on-error: true
         run: |
-          if [ -f build/app/outputs/flutter-apk/app-debug.apk ]; then
-            keytool -printcert -jarfile build/app/outputs/flutter-apk/app-debug.apk | grep -i "SHA1:"
-          else
-            echo "APK not found at build/app/outputs/flutter-apk/app-debug.apk"
+          apk="build/app/outputs/flutter-apk/app-debug.apk"
+          if [ ! -f "$apk" ]; then
+            echo "APK not found at $apk"
             exit 1
           fi
+
+          echo "== apksigner (if available) =="
+          if command -v apksigner >/dev/null 2>&1; then
+            apksigner verify --print-certs "$apk" || true
+          else
+            echo "apksigner not found"
+          fi
+
+          echo "== keytool output =="
+          keytool -printcert -jarfile "$apk" | tee /tmp/apk-cert.txt || true
+          echo "== SHA-1 lines =="
+          grep -Ei "SHA1:|SHA-1:" /tmp/apk-cert.txt || echo "SHA-1 not found in keytool output"
 
       - name: Verify Google Sign-In SHA-1 matches google-services.json
         run: |
