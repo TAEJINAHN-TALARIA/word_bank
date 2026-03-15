@@ -2,9 +2,96 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/word.dart';
 
 class WordSyncService {
+  static const _kPendingUpsert = 'sync_pending_upsert_ids';
+  static const _kPendingDelete = 'sync_pending_delete_ids';
+
+  static final Set<int> _pendingUpsertIds = {};
+  static final Set<int> _pendingDeleteIds = {};
+
+  /// 앱 시작 시 한 번 호출해 이전 세션의 pending ID를 복원합니다.
+  static Future<void> initPendingQueue() async {
+    final prefs = await SharedPreferences.getInstance();
+    _pendingUpsertIds.addAll(
+        (prefs.getStringList(_kPendingUpsert) ?? []).map(int.parse));
+    _pendingDeleteIds.addAll(
+        (prefs.getStringList(_kPendingDelete) ?? []).map(int.parse));
+  }
+
+  static Future<void> _savePendingIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(
+        _kPendingUpsert, _pendingUpsertIds.map((e) => e.toString()).toList());
+    await prefs.setStringList(
+        _kPendingDelete, _pendingDeleteIds.map((e) => e.toString()).toList());
+  }
+
+  /// upsert를 시도하고 실패 시 pending queue에 등록합니다.
+  static Future<void> upsertWordQueued(Word word) async {
+    try {
+      await upsertWord(word);
+      if (word.id != null) _pendingUpsertIds.remove(word.id);
+      await _savePendingIds();
+    } catch (e) {
+      debugPrint('Sync upsert failed, queuing retry for id=${word.id}: $e');
+      if (word.id != null) {
+        _pendingUpsertIds.add(word.id!);
+        await _savePendingIds();
+      }
+    }
+  }
+
+  /// delete를 시도하고 실패 시 pending queue에 등록합니다.
+  static Future<void> deleteWordQueued(int id) async {
+    try {
+      await deleteWord(id);
+      _pendingDeleteIds.remove(id);
+      await _savePendingIds();
+    } catch (e) {
+      debugPrint('Sync delete failed, queuing retry for id=$id: $e');
+      _pendingDeleteIds.add(id);
+      await _savePendingIds();
+    }
+  }
+
+  /// 이전에 실패한 동기화를 재시도합니다.
+  /// [allLocalWords]: 현재 로컬 DB의 모든 단어 목록 (upsert 재시도에 필요).
+  static Future<void> retryPendingSync(List<Word> allLocalWords) async {
+    final wordById = {
+      for (final w in allLocalWords) if (w.id != null) w.id!: w
+    };
+
+    final upsertIds = Set<int>.from(_pendingUpsertIds);
+    for (final id in upsertIds) {
+      final word = wordById[id];
+      if (word == null) {
+        _pendingUpsertIds.remove(id);
+        continue;
+      }
+      try {
+        await upsertWord(word);
+        _pendingUpsertIds.remove(id);
+      } catch (e) {
+        debugPrint('Retry upsert still failed for id=$id: $e');
+      }
+    }
+
+    final deleteIds = Set<int>.from(_pendingDeleteIds);
+    for (final id in deleteIds) {
+      try {
+        await deleteWord(id);
+        _pendingDeleteIds.remove(id);
+      } catch (e) {
+        debugPrint('Retry delete still failed for id=$id: $e');
+      }
+    }
+
+    await _savePendingIds();
+  }
+
   static String? _uidOrNull() => FirebaseAuth.instance.currentUser?.uid;
 
   static DocumentReference<Map<String, dynamic>> _docFor(String uid, int id) {

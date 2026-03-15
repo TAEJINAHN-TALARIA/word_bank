@@ -9,6 +9,8 @@ import '../models/word.dart';
 import '../services/api_client.dart';
 import '../services/language_prefs.dart';
 import '../services/subscription_service.dart';
+import '../services/word_sync_service.dart';
+import '../utils/media_utils.dart';
 import '../widgets/meaning_display.dart';
 import 'paywall_screen.dart';
 
@@ -23,6 +25,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
   bool _showContextField = false;
   bool _isLoading = false;
   bool _notFound = false;
+  bool _rateLimitError = false;
   bool _isManualEntry = false;
   bool _networkError = false;
   String? _searchResult;
@@ -111,6 +114,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
       _searchResult = null;
       _phonetic = null;
       _notFound = false;
+      _rateLimitError = false;
       _networkError = false;
       _wordSuggestions = [];
     });
@@ -132,7 +136,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
     } on LookupNotFoundException {
       if (mounted) setState(() => _notFound = true);
     } on LookupRateLimitException {
-      if (mounted) setState(() => _notFound = true);
+      if (mounted) setState(() => _rateLimitError = true);
     } on LookupQuotaExceededException {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -233,20 +237,6 @@ class _AddWordSheetState extends State<AddWordSheet> {
     return items;
   }
 
-  Map<String, List<Map<String, dynamic>>> _buildMediaPayload(
-      List<Map<String, dynamic>> items) {
-    final photos = <Map<String, dynamic>>[];
-    final youtube = <Map<String, dynamic>>[];
-    for (final item in items) {
-      final type = item['type'];
-      if (type == 'image') {
-        photos.add({'url': item['url']});
-      } else if (type == 'youtube') {
-        youtube.add({'url': item['url']});
-      }
-    }
-    return {'photos': photos, 'youtube': youtube};
-  }
 
   Future<bool> _checkAndHandleSaveLimit() async {
     final service = context.read<SubscriptionService>();
@@ -295,6 +285,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
   }
 
   Future<void> _saveWord() async {
+    if (_searchResult == null) return;
     final wordText = _wordController.text.trim();
     if (wordText.isEmpty) {
       if (mounted) {
@@ -323,7 +314,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
       meaningJson: _lookupPayload != null
           ? {
               ..._lookupPayload!,
-              'media': _buildMediaPayload(combinedMedia),
+              'media': buildMediaPayload(combinedMedia),
             }
           : null,
       media: combinedMedia,
@@ -332,7 +323,8 @@ class _AddWordSheetState extends State<AddWordSheet> {
           : null,
       tags: _tags,
     );
-    await DatabaseHelper.instance.insertWord(word);
+    final saved = await DatabaseHelper.instance.insertWord(word);
+    WordSyncService.upsertWordQueued(saved);
     await SubscriptionService.incrementMonthlySaveCount();
     if (mounted) {
       context.read<SubscriptionService>().refreshStatus();
@@ -371,7 +363,7 @@ class _AddWordSheetState extends State<AddWordSheet> {
       buffer.writeln('Example: $example');
     }
 
-    final manualMediaPayload = _buildMediaPayload(_mediaItems);
+    final manualMediaPayload = buildMediaPayload(_mediaItems);
     final word = Word(
       word: wordText,
       meaning: buffer.toString().trim(),
@@ -395,7 +387,8 @@ class _AddWordSheetState extends State<AddWordSheet> {
           : null,
       tags: _tags,
     );
-    await DatabaseHelper.instance.insertWord(word);
+    final saved = await DatabaseHelper.instance.insertWord(word);
+    WordSyncService.upsertWordQueued(saved);
     await SubscriptionService.incrementMonthlySaveCount();
     if (mounted) {
       context.read<SubscriptionService>().refreshStatus();
@@ -660,6 +653,38 @@ class _AddWordSheetState extends State<AddWordSheet> {
                     const Text(
                       'Check your internet connection and try again.',
                       style: TextStyle(fontSize: 13, color: Color(0xFF5D4037)),
+                    ),
+                    const SizedBox(height: 8),
+                    GestureDetector(
+                      onTap: _enterManually,
+                      child: const Text(
+                        'Enter the definition yourself →',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF2C3E50),
+                          fontWeight: FontWeight.w600,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (_rateLimitError) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3E0),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFFCC80)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Too many requests. Please wait a moment and try again.',
+                      style: TextStyle(fontSize: 14, color: Color(0xFF5D4037)),
                     ),
                     const SizedBox(height: 8),
                     GestureDetector(
@@ -993,7 +1018,8 @@ class _LanguageRow extends StatelessWidget {
     final options = <String?>[null, ...LanguagePrefs.supported];
     final labels = ['Same as word', ...LanguagePrefs.supported];
 
-    final result = await showModalBottomSheet<String>(
+    // ({String? lang})  — null은 "단어와 동일", sheet 자체가 null이면 취소
+    final result = await showModalBottomSheet<({String? lang})>(
       context: context,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
@@ -1016,8 +1042,7 @@ class _LanguageRow extends StatelessWidget {
                 trailing: isSelected
                     ? const Icon(Icons.check, size: 20)
                     : null,
-                onTap: () =>
-                    Navigator.pop(ctx, options[i] ?? '\x00'),
+                onTap: () => Navigator.pop(ctx, (lang: options[i])),
               );
             }),
             const SizedBox(height: 8),
@@ -1026,7 +1051,7 @@ class _LanguageRow extends StatelessWidget {
       ),
     );
     if (result != null) {
-      onExampleChanged(result == '\x00' ? null : result);
+      onExampleChanged(result.lang);
     }
   }
 

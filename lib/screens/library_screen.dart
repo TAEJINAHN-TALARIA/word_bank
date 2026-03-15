@@ -16,8 +16,7 @@ import 'login_screen.dart';
 import 'paywall_screen.dart';
 import 'word_detail_sheet.dart';
 
-// ??? UI Strings ???
-// ??? Library Screen ???
+// Library Screen
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
 
@@ -48,29 +47,49 @@ class _LibraryScreenState extends State<LibraryScreen>
       }
       if (user != null) {
         final localWords = await DatabaseHelper.instance.getAllWords();
-        await WordSyncService.syncAll(localWords);
+        final localById = {for (final w in localWords) if (w.id != null) w.id!: w};
+
+        // 클라우드에서 먼저 받아와서, 다른 기기에서 온 최신 데이터를 로컬에 반영
         final cloudWords = await WordSyncService.fetchAll();
-        final localById = {for (final w in localWords) w.id: w};
+        final cloudById = {for (final w in cloudWords) if (w.id != null) w.id!: w};
+
         for (final cloudWord in cloudWords) {
+          if (cloudWord.id == null) continue;
           final local = localById[cloudWord.id];
-          // 클라우드가 더 최신이거나 로컬에 없는 경우에만 덮어씀
+          // 로컬에 없거나 클라우드가 더 최신인 경우에만 덮어씀
           if (local == null || cloudWord.updatedAt.isAfter(local.updatedAt)) {
             await DatabaseHelper.instance.upsertWordFromCloud(cloudWord);
           }
         }
+
+        // 클라우드에 없거나 로컬이 더 최신인 단어만 선별해서 업로드
+        final wordsToSync = localWords.where((w) {
+          if (w.id == null) return false;
+          final cloud = cloudById[w.id];
+          return cloud == null || w.updatedAt.isAfter(cloud.updatedAt);
+        }).toList();
+        if (wordsToSync.isNotEmpty) {
+          await WordSyncService.syncAll(wordsToSync);
+        }
+
         if (mounted) _loadWords();
       }
     });
     _loadWords();
     _loadUiLanguage();
-    DatabaseHelper.instance.retryPendingSync();
+    _retryPendingSync();
+  }
+
+  Future<void> _retryPendingSync() async {
+    final words = await DatabaseHelper.instance.getAllWords();
+    await WordSyncService.retryPendingSync(words);
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       context.read<SubscriptionService>().refreshStatus();
-      DatabaseHelper.instance.retryPendingSync();
+      _retryPendingSync();
     }
   }
 
@@ -315,7 +334,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   }
 }
 
-// ??? Word Card ???
+// Word Card
 class _WordCard extends StatelessWidget {
   final Word word;
   final AppStrings s;
@@ -398,6 +417,7 @@ class _WordCard extends StatelessWidget {
                       );
                       if (confirmed == true && context.mounted) {
                         await DatabaseHelper.instance.deleteWord(word.id!);
+                        WordSyncService.deleteWordQueued(word.id!);
                         onDeleted();
                       }
                     },
@@ -431,7 +451,7 @@ class _WordCard extends StatelessWidget {
   }
 }
 
-// ??? Settings Sheet ???
+// Settings Sheet
 class _SettingsSheet extends StatefulWidget {
   final AppStrings s;
   final String uiLanguage;
@@ -538,7 +558,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
   }
 }
 
-// ??? Lang Dropdown ???
+// Lang Dropdown
 class _LangDropdown extends StatelessWidget {
   final String? value;
   final List<String> options;
@@ -581,7 +601,7 @@ class _LangDropdown extends StatelessWidget {
   }
 }
 
-// ??? Account Sheet ???
+// Account Sheet
 class _AccountSheet extends StatefulWidget {
   final AppStrings s;
   final VoidCallback onRefresh;

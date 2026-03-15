@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../db/database_helper.dart';
 import '../models/word.dart';
+import '../services/word_sync_service.dart';
+import '../utils/media_utils.dart';
 import '../widgets/meaning_display.dart';
 
 class WordDetailSheet extends StatefulWidget {
@@ -69,26 +71,12 @@ class _WordDetailSheetState extends State<WordDetailSheet> {
     _youtubeUrlController.clear();
   }
 
-  Map<String, List<Map<String, dynamic>>> _buildMediaPayload(
-      List<Map<String, dynamic>> items) {
-    final photos = <Map<String, dynamic>>[];
-    final youtube = <Map<String, dynamic>>[];
-    for (final item in items) {
-      final type = item['type'];
-      if (type == 'image') {
-        photos.add({'url': item['url']});
-      } else if (type == 'youtube') {
-        youtube.add({'url': item['url']});
-      }
-    }
-    return {'photos': photos, 'youtube': youtube};
-  }
 
   Future<void> _saveChanges() async {
     final updatedMeaningJson = widget.word.meaningJson != null
         ? {
             ...widget.word.meaningJson!,
-            'media': _buildMediaPayload(_mediaItems),
+            'media': buildMediaPayload(_mediaItems),
           }
         : null;
     final updated = Word(
@@ -105,6 +93,7 @@ class _WordDetailSheetState extends State<WordDetailSheet> {
       createdAt: widget.word.createdAt,
     );
     await DatabaseHelper.instance.updateWord(updated);
+    WordSyncService.upsertWordQueued(updated);
     widget.onUpdated();
     if (mounted) Navigator.pop(context);
   }

@@ -8,10 +8,12 @@ import 'firebase_options.dart';
 import 'screens/library_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/subscription_service.dart';
+import 'services/word_sync_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await DatabaseHelper.init();
+  await WordSyncService.initPendingQueue();
 
   final subscriptionService = SubscriptionService();
   await _initializeFirebase();

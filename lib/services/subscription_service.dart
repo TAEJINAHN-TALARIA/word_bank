@@ -15,9 +15,9 @@ class SubscriptionService extends ChangeNotifier {
   static const String _saveMonthKey = 'word_save_month';
   static const String _saveCountKey = 'word_save_count';
 
-  // TODO: 배포 전 RevenueCat 대시보드에서 발급받은 실제 API 키로 교체
-  static const String _iosApiKey = 'test_AAKutdApjufivhgOwuVxPTQjVsQ';
-  static const String _androidApiKey = 'test_AAKutdApjufivhgOwuVxPTQjVsQ';
+  // 빌드 시 --dart-define=REVENUECAT_IOS_KEY=<key> --dart-define=REVENUECAT_ANDROID_KEY=<key> 로 전달하세요.
+  static const String _iosApiKey = String.fromEnvironment('REVENUECAT_IOS_KEY');
+  static const String _androidApiKey = String.fromEnvironment('REVENUECAT_ANDROID_KEY');
 
   bool _isPremium = false;
   int _monthlyCount = 0;
