@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../db/database_helper.dart';
 import '../models/word.dart';
+import '../services/tts_service.dart';
 import '../services/word_sync_service.dart';
 import '../utils/media_utils.dart';
 import '../widgets/meaning_display.dart';
@@ -130,13 +131,28 @@ class _WordDetailSheetState extends State<WordDetailSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      widget.word.word,
-                      style: const TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF2C3E50),
-                      ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text(
+                          widget.word.word,
+                          style: const TextStyle(
+                            fontSize: 26,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF2C3E50),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        IconButton(
+                          onPressed: () =>
+                              TtsService.instance.speak(widget.word.word),
+                          icon: const Icon(Icons.volume_up_outlined),
+                          iconSize: 22,
+                          color: Colors.black38,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
                     ),
                     if (widget.word.phonetic != null)
                       Text(
