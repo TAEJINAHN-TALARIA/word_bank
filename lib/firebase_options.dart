@@ -1,12 +1,7 @@
-// ⚠️  이 파일은 FlutterFire CLI로 자동 생성되어야 합니다.
+// Firebase configuration for Word Bank
 //
-// 설정 방법:
-//   1. dart pub global activate flutterfire_cli
-//   2. Firebase Console에서 프로젝트 생성
-//   3. 프로젝트 루트에서: flutterfire configure
-//
-// flutterfire configure 실행 후 이 파일이 실제 설정값으로 교체됩니다.
-// 참고: https://firebase.flutter.dev/docs/cli
+// Android uses google-services.json for configuration.
+// This file provides fallback options and configuration for other platforms.
 
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
@@ -28,31 +23,30 @@ class DefaultFirebaseOptions {
     }
   }
 
-  // TODO: 아래 값들을 Firebase Console에서 가져온 실제 값으로 교체하세요.
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'YOUR_WEB_API_KEY',
-    appId: 'YOUR_WEB_APP_ID',
-    messagingSenderId: 'YOUR_SENDER_ID',
-    projectId: 'YOUR_PROJECT_ID',
-    authDomain: 'YOUR_PROJECT_ID.firebaseapp.com',
-    storageBucket: 'YOUR_PROJECT_ID.appspot.com',
+    apiKey: 'AIzaSyBEfZdEDdt5P04SAHo-nVX-Tjr1sPSWT_g',
+    appId: '1:886343252244:android:8b6bb8bd84b7d06b46ea01',
+    messagingSenderId: '886343252244',
+    projectId: 'wordbank-6284f',
+    authDomain: 'wordbank-6284f.firebaseapp.com',
+    storageBucket: 'wordbank-6284f.firebasestorage.app',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'YOUR_ANDROID_API_KEY',
-    appId: 'YOUR_ANDROID_APP_ID',
-    messagingSenderId: 'YOUR_SENDER_ID',
-    projectId: 'YOUR_PROJECT_ID',
-    storageBucket: 'YOUR_PROJECT_ID.appspot.com',
+    apiKey: 'AIzaSyBEfZdEDdt5P04SAHo-nVX-Tjr1sPSWT_g',
+    appId: '1:886343252244:android:8b6bb8bd84b7d06b46ea01',
+    messagingSenderId: '886343252244',
+    projectId: 'wordbank-6284f',
+    storageBucket: 'wordbank-6284f.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'YOUR_IOS_API_KEY',
     appId: 'YOUR_IOS_APP_ID',
-    messagingSenderId: 'YOUR_SENDER_ID',
-    projectId: 'YOUR_PROJECT_ID',
-    storageBucket: 'YOUR_PROJECT_ID.appspot.com',
+    messagingSenderId: '886343252244',
+    projectId: 'wordbank-6284f',
+    storageBucket: 'wordbank-6284f.firebasestorage.app',
     iosClientId: 'YOUR_IOS_CLIENT_ID',
-    iosBundleId: 'com.example.wordBank',
+    iosBundleId: 'com.taejinahn.wordbank',
   );
 }
