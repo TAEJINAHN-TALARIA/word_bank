@@ -41,5 +41,6 @@ app.*.map.json
 /android/app/release
 
 # Firebase config files (contain API keys)
+lib/firebase_options.dart
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
