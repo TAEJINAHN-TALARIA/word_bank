@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../app_strings.dart';
 import '../db/database_helper.dart';
 import '../models/word.dart';
 import '../services/auth_service.dart';
@@ -16,63 +17,6 @@ import 'paywall_screen.dart';
 import 'word_detail_sheet.dart';
 
 // ??? UI Strings ???
-class _S {
-  final bool _ko;
-  const _S._(this._ko);
-  static _S of(String lang) => _S._(lang == '한국어');
-
-  String get searchHint => _ko ? '단어 검색..' : 'Search words...';
-  String get randomWord => _ko ? '랜덤 단어' : 'Random word';
-  String get settings => _ko ? '설정' : 'Settings';
-  String get signIn => _ko ? '로그인' : 'Sign In';
-  String get account => _ko ? '계정' : 'Account';
-  String get addWord => _ko ? '단어 추가' : 'Add Word';
-  String get emptyMessage => _ko
-      ? '저장된 단어가 없어요.\n독서 중 모르는 단어가 나오면\n단어 추가 버튼으로 기록해보세요.'
-      : 'No words saved yet.\nFind an unfamiliar word while reading?\nAdd it to your Word Bank.';
-  String get all => _ko ? '전체' : 'All';
-  String noResults(String q) =>
-      _ko ? '"$q" 검색 결과가 없어요' : 'No results for "$q".';
-  String get noWordsWithTag =>
-      _ko ? '해당 태그의 단어가 없어요' : 'No words with this tag.';
-  String get deleteTitle => _ko ? '단어 삭제' : 'Delete word?';
-  String deleteContent(String w) => _ko
-      ? '"$w"를 Word Bank에서 삭제할까요?\n삭제해도 이번 달 저장 가능 횟수는 복구되지 않습니다.'
-      : 'Remove "$w" from your Word Bank?\nDeleting it will not restore your monthly save limit.';
-  String get cancel => _ko ? '취소' : 'Cancel';
-  String get delete => _ko ? '삭제' : 'Delete';
-
-  // Settings sheet
-  String get settingsTitle => _ko ? '설정' : 'Settings';
-  String get definitionLang => _ko ? '정의 표시 언어' : 'Definition language';
-  String get examplesLang =>
-      _ko ? '예문 및 유의어 언어' : 'Examples & synonyms language';
-  String get sameAsWord => _ko ? '단어와 동일' : 'Same as word';
-  String get appLanguage => _ko ? '앱 언어' : 'App language';
-
-  // Account sheet
-  String get accountTitle => _ko ? '계정' : 'Account';
-  String get signInDesc => _ko
-      ? '로그인하면 구독 상태가 기기 간 동기화되고\nPremium 업그레이드가 가능합니다.'
-      : 'Sign in to sync your subscription\nacross devices and unlock Premium.';
-  String get signInButton => _ko ? '로그인 / 회원가입' : 'Sign In / Register';
-  String get premiumPlan => _ko ? 'Premium 플랜' : 'Premium Plan';
-  String get freePlan => _ko ? '무료 플랜' : 'Free Plan';
-  String get upgrade => _ko ? '업그레이드' : 'Upgrade';
-  String get signOut => _ko ? '로그아웃' : 'Sign Out';
-  String get unlimitedLookup => _ko ? '더 많은 단어 저장' : 'More word storage';
-  String monthlyUsage(int used, int limit) =>
-      _ko ? '이번 달 단어 저장: $used / $limit' : 'This month: $used / $limit';
-
-  // Usage banner
-  String usageBanner(int used, int limit) =>
-      _ko ? '이번 달 단어 저장: $used/$limit' : 'Words saved this month: $used/$limit';
-  String usageLimit(int used, int limit) => _ko
-      ? '이번 달 무료 저장 한도 도달 ($used/$limit)'
-      : 'Monthly save limit reached ($used/$limit)';
-  String get upgradeButton => _ko ? 'Premium 업그레이드' : 'Upgrade to Premium';
-}
-
 // ??? Library Screen ???
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -91,7 +35,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   String _uiLanguage = 'English';
   StreamSubscription<User?>? _authSub;
 
-  _S get _s => _S.of(_uiLanguage);
+  AppStrings get _s => AppStrings.of(_uiLanguage);
 
   @override
   void initState() {
@@ -103,11 +47,16 @@ class _LibraryScreenState extends State<LibraryScreen>
         context.read<SubscriptionService>().refreshStatus();
       }
       if (user != null) {
-        final words = await DatabaseHelper.instance.getAllWords();
-        await WordSyncService.syncAll(words);
+        final localWords = await DatabaseHelper.instance.getAllWords();
+        await WordSyncService.syncAll(localWords);
         final cloudWords = await WordSyncService.fetchAll();
-        for (final word in cloudWords) {
-          await DatabaseHelper.instance.upsertWordFromCloud(word);
+        final localById = {for (final w in localWords) w.id: w};
+        for (final cloudWord in cloudWords) {
+          final local = localById[cloudWord.id];
+          // 클라우드가 더 최신이거나 로컬에 없는 경우에만 덮어씀
+          if (local == null || cloudWord.updatedAt.isAfter(local.updatedAt)) {
+            await DatabaseHelper.instance.upsertWordFromCloud(cloudWord);
+          }
         }
         if (mounted) _loadWords();
       }
@@ -369,7 +318,7 @@ class _LibraryScreenState extends State<LibraryScreen>
 // ??? Word Card ???
 class _WordCard extends StatelessWidget {
   final Word word;
-  final _S s;
+  final AppStrings s;
   final VoidCallback onDeleted;
 
   const _WordCard({required this.word, required this.s, required this.onDeleted});
@@ -484,7 +433,7 @@ class _WordCard extends StatelessWidget {
 
 // ??? Settings Sheet ???
 class _SettingsSheet extends StatefulWidget {
-  final _S s;
+  final AppStrings s;
   final String uiLanguage;
   final void Function(String) onUiLanguageChanged;
 
@@ -502,7 +451,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
   String _definitionLanguage = 'English';
   String? _exampleLanguage;
   late String _uiLanguage;
-  late _S _s;
+  late AppStrings _s;
 
   @override
   void initState() {
@@ -548,7 +497,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
               await LanguagePrefs.setUiLanguage(lang);
               setState(() {
                 _uiLanguage = lang;
-                _s = _S.of(lang);
+                _s = AppStrings.of(lang);
               });
               widget.onUiLanguageChanged(lang);
             },
@@ -634,7 +583,7 @@ class _LangDropdown extends StatelessWidget {
 
 // ??? Account Sheet ???
 class _AccountSheet extends StatefulWidget {
-  final _S s;
+  final AppStrings s;
   final VoidCallback onRefresh;
 
   const _AccountSheet({required this.s, required this.onRefresh});

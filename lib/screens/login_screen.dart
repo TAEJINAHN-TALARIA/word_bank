@@ -1,37 +1,7 @@
-﻿import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import '../app_strings.dart';
 import '../services/auth_service.dart';
 import '../services/language_prefs.dart';
-
-class _S {
-  final bool _ko;
-  const _S._(this._ko);
-  static _S of(String lang) => _S._(lang == '한국어');
-
-  String get appTitle => 'Word Bank';
-  String get intro => _ko
-      ? 'AI로 단어를 부담 없이 학습해보세요.'
-      : 'Learn words with AI without the pressure.';
-  String get startFree => _ko ? '무료로 시작하기' : 'Start for free';
-  String get feature1 => _ko ? 'AI 단어 조회 월 50회' : '50 AI lookups per month';
-  String get feature2 => _ko ? '단어 저장' : 'Save your words';
-  String get feature3 => _ko ? '7개 언어 지원' : 'Supports 7 languages';
-  String get premiumLabel => _ko
-      ? 'Premium: 더 많은 단어 저장'
-      : 'Premium: More word storage';
-  String get continueGoogle => _ko ? 'Google로 계속하기' : 'Continue with Google';
-  String get continueApple => _ko ? 'Apple로 계속하기' : 'Continue with Apple';
-  String get loginSuccess => _ko ? '로그인에 성공했어요.' : 'Signed in successfully.';
-  String get googleFail => _ko
-      ? 'Google 로그인에 실패했습니다. 다시 시도해 주세요.'
-      : 'Google sign-in failed. Please try again.';
-  String get appleFail => _ko
-      ? 'Apple 로그인에 실패했습니다. 다시 시도해 주세요.'
-      : 'Apple sign-in failed. Please try again.';
-  String get terms => _ko
-      ? '로그인하면 이용약관 및 개인정보처리방침에 동의하게 됩니다.'
-      : 'By signing in, you agree to the Terms and Privacy Policy.';
-}
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -44,9 +14,8 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   String? _error;
   String _uiLanguage = 'English';
-  bool _showDebugLog = false;
 
-  _S get _s => _S.of(_uiLanguage);
+  AppStrings get _s => AppStrings.of(_uiLanguage);
 
   @override
   void initState() {
@@ -97,7 +66,6 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _isLoading = true;
       _error = null;
-      _showDebugLog = false;
     });
     try {
       final credential = await AuthService.signInWithGoogle();
@@ -109,12 +77,7 @@ class _LoginScreenState extends State<LoginScreen> {
       debugPrint('Login screen Google sign-in error: $e');
       if (mounted) setState(() => _error = _s.googleFail);
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _showDebugLog = AuthService.debugLogs.isNotEmpty;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -272,29 +235,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 11, color: Colors.black38),
               ),
-              // ── 임시 디버그 로그 패널 (APK 디버깅용) ──
-              if (_showDebugLog && AuthService.debugLogs.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                Container(
-                  constraints: const BoxConstraints(maxHeight: 200),
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E1E1E),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: SingleChildScrollView(
-                    child: SelectableText(
-                      AuthService.debugLogs.join('\n'),
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: Color(0xFF00FF00),
-                        fontFamily: 'monospace',
-                        height: 1.5,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
             ],
           ),
         ),

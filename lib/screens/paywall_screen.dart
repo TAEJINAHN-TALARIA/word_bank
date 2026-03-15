@@ -1,59 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../app_strings.dart';
 import '../services/subscription_service.dart';
 import '../services/language_prefs.dart';
-
-class _S {
-  final bool _ko;
-  const _S._(this._ko);
-  static _S of(String lang) => _S._(lang == '한국어');
-
-  String get title =>
-      _ko ? 'Premium으로 업그레이드하세요.' : 'Upgrade to Premium.';
-  String get unlimitedTitle => _ko ? '무제한 단어 저장' : 'Unlimited word storage';
-  String get unlimitedSubtitle =>
-      _ko ? '원하는 단어를 제한 없이 저장하세요' : 'Save as many words as you want';
-  String get exportTitle => _ko ? 'PDF/Excel 내보내기' : 'Export to PDF/Excel';
-  String get exportSubtitle => _ko
-      ? '단어장을 깔끔하게 정리해 내보낼 수 있어요'
-      : 'Export your word lists in a clean format';
-  String get restore => _ko ? '이전 구매 복원' : 'Restore purchases';
-  String get restoreNotFound =>
-      _ko ? '복원된 구독을 찾을 수 없습니다.' : 'No restored subscription found.';
-  String get restoreFailed =>
-      _ko ? '구매 복원에 실패했습니다.' : 'Failed to restore purchases.';
-  String get startFallback => _ko ? '월 9,900원으로 시작하기' : 'Start for 9,900 KRW/month';
-
-  String startWithPrice(String price) {
-    if (_ko) {
-      if (price.contains('/')) return '$price으로 시작하기';
-      return '월 $price로 시작하기';
-    }
-    return price.contains('/')
-        ? 'Start for $price'
-        : 'Start for $price/month';
-  }
-
-  String storeName(TargetPlatform platform) {
-    if (_ko) {
-      return switch (platform) {
-        TargetPlatform.iOS => 'App Store',
-        TargetPlatform.android => 'Google Play 스토어',
-        _ => '앱 스토어',
-      };
-    }
-    return switch (platform) {
-      TargetPlatform.iOS => 'App Store',
-      TargetPlatform.android => 'Google Play',
-      _ => 'the app store',
-    };
-  }
-
-  String cancelNote(String store) => _ko
-      ? '구독은 $store에서 언제든 취소할 수 있습니다.'
-      : 'You can cancel anytime in $store.';
-}
 
 class PaywallScreen extends StatefulWidget {
   final int? used;
@@ -70,12 +20,12 @@ class _PaywallScreenState extends State<PaywallScreen> {
   String? _error;
   String? _priceString;
   String _uiLanguage = 'English';
-  late _S _s;
+  late AppStrings _s;
 
   @override
   void initState() {
     super.initState();
-    _s = _S.of(_uiLanguage);
+    _s = AppStrings.of(_uiLanguage);
     _loadPrice();
     _loadUiLanguage();
   }
@@ -85,7 +35,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
     if (mounted) {
       setState(() {
         _uiLanguage = lang;
-        _s = _S.of(lang);
+        _s = AppStrings.of(lang);
       });
     }
   }
@@ -97,29 +47,38 @@ class _PaywallScreenState extends State<PaywallScreen> {
   }
 
   String _storeName() {
-    if (kIsWeb) return _s.storeName(TargetPlatform.android);
-    return _s.storeName(defaultTargetPlatform);
+    final isIos = !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+    return _s.storeName(isIos);
   }
 
   String _priceButtonText() {
     final price = _priceString;
-    if (price == null || price.isEmpty) {
-      return _s.startFallback;
-    }
+    if (price == null || price.isEmpty) return _s.startFallback;
     return _s.startWithPrice(price);
   }
+
+  String _purchaseErrorMessage(PurchaseErrorCode code) => switch (code) {
+        PurchaseErrorCode.network => _s.purchaseErrorNetwork,
+        PurchaseErrorCode.alreadyOwned => _s.purchaseErrorAlreadyOwned,
+        PurchaseErrorCode.unknown => _s.purchaseErrorUnknown,
+      };
+
+  String _restoreErrorMessage(PurchaseErrorCode code) => switch (code) {
+        PurchaseErrorCode.network => _s.restoreErrorNetwork,
+        _ => _s.restoreErrorUnknown,
+      };
 
   Future<void> _subscribe() async {
     setState(() {
       _isLoading = true;
       _error = null;
     });
-    final error = await context.read<SubscriptionService>().purchase();
+    final errorCode = await context.read<SubscriptionService>().purchase();
     if (!mounted) return;
-    if (error == null) {
+    if (errorCode == null) {
       Navigator.of(context).pop(true);
     } else {
-      setState(() => _error = error);
+      setState(() => _error = _purchaseErrorMessage(errorCode));
     }
     setState(() => _isLoading = false);
   }
@@ -129,20 +88,17 @@ class _PaywallScreenState extends State<PaywallScreen> {
       _isLoading = true;
       _error = null;
     });
-    try {
-      final service = context.read<SubscriptionService>();
-      await service.restorePurchases();
-      await service.refreshStatus();
-      if (mounted && service.isPremium) {
-        Navigator.of(context).pop(true);
-      } else if (mounted) {
-        setState(() => _error = _s.restoreNotFound);
-      }
-    } catch (e) {
-      if (mounted) setState(() => _error = _s.restoreFailed);
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+    final service = context.read<SubscriptionService>();
+    final errorCode = await service.restorePurchases();
+    if (!mounted) return;
+    if (errorCode != null) {
+      setState(() => _error = _restoreErrorMessage(errorCode));
+    } else if (service.isPremium) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() => _error = _s.restoreNotFound);
     }
+    setState(() => _isLoading = false);
   }
 
   @override
@@ -177,7 +133,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
               ),
               const SizedBox(height: 20),
               Text(
-                _s.title,
+                _s.paywallTitle,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 22,

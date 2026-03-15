@@ -8,6 +8,7 @@ class Word {
   final String? context;
   final List<String> tags;
   final DateTime createdAt;
+  final DateTime updatedAt;
 
   Word({
     this.id,
@@ -19,7 +20,9 @@ class Word {
     this.context,
     this.tags = const [],
     DateTime? createdAt,
-  }) : createdAt = createdAt ?? DateTime.now();
+    DateTime? updatedAt,
+  })  : createdAt = createdAt ?? DateTime.now(),
+        updatedAt = updatedAt ?? createdAt ?? DateTime.now();
 
   Map<String, dynamic> toMap() => {
         'id': id,
@@ -31,6 +34,7 @@ class Word {
         'context': context,
         'tags': tags.join(','),
         'created_at': createdAt.toIso8601String(),
+        'updated_at': updatedAt.toIso8601String(),
       };
 
   factory Word.fromMap(Map<String, dynamic> map) => Word(
@@ -50,5 +54,8 @@ class Word {
             ? (map['tags'] as String).split(',')
             : [],
         createdAt: DateTime.parse(map['created_at'] as String),
+        updatedAt: map['updated_at'] != null
+            ? DateTime.parse(map['updated_at'] as String)
+            : DateTime.parse(map['created_at'] as String),
       );
 }

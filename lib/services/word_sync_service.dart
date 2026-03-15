@@ -81,6 +81,9 @@ class WordSyncService {
     final createdAt = (data['created_at'] is Timestamp)
         ? (data['created_at'] as Timestamp).toDate()
         : DateTime.now();
+    final updatedAt = (data['updated_at'] is Timestamp)
+        ? (data['updated_at'] as Timestamp).toDate()
+        : createdAt;
     return Word(
       id: id,
       word: (data['word'] as String?) ?? '',
@@ -97,6 +100,7 @@ class WordSyncService {
       tags: (data['tags'] as List?)?.map((e) => e.toString()).toList() ??
           const [],
       createdAt: createdAt,
+      updatedAt: updatedAt,
     );
   }
 
