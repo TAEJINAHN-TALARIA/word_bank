@@ -131,6 +131,11 @@ jobs:
               -storepass android -keypass android 2>/dev/null | grep "SHA1:" || echo "Keystore not yet generated"
           fi
 
+      - name: Set up firebase_options.dart
+        env:
+          FIREBASE_OPTIONS_DART: ${{ secrets.FIREBASE_OPTIONS_DART }}
+        run: echo "$FIREBASE_OPTIONS_DART" > lib/firebase_options.dart
+
       - name: Install dependencies
         run: flutter pub get
 
