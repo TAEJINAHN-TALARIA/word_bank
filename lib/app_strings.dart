@@ -54,7 +54,7 @@ class AppStrings {
   String get settingsTitle => _ko ? '설정' : 'Settings';
   String get definitionLang => _ko ? '정의 표시 언어' : 'Definition language';
   String get examplesLang =>
-      _ko ? '예문 및 유의어 언어' : 'Examples & synonyms language';
+      _ko ? '예문 언어' : 'Examples language';
   String get sameAsWord => _ko ? '단어와 동일' : 'Same as word';
   String get appLanguage => _ko ? '앱 언어' : 'App language';
 
@@ -82,7 +82,7 @@ class AppStrings {
 
   // ── Paywall Screen ──
   String get paywallTitle =>
-      _ko ? 'Premium으로 업그레이드하세요.' : 'Upgrade to Premium.';
+      _ko ? 'Premium으로 업그레이드하세요' : 'Upgrade to Premium';
   String get unlimitedTitle => _ko ? '무제한 단어 저장' : 'Unlimited word storage';
   String get unlimitedSubtitle =>
       _ko ? '원하는 단어를 제한 없이 저장하세요' : 'Save as many words as you want';

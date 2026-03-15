@@ -413,7 +413,9 @@ class _AddWordSheetState extends State<AddWordSheet> {
   Widget build(BuildContext context) {
     return SingleChildScrollView(
       padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom + 32,
+        bottom: MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).viewPadding.bottom +
+            32,
         left: 24,
         right: 24,
         top: 32,
@@ -1030,7 +1032,7 @@ class _LanguageRow extends StatelessWidget {
           children: [
             const Padding(
               padding: EdgeInsets.fromLTRB(24, 20, 24, 8),
-              child: Text('Example & synonyms language',
+              child: Text('Examples language',
                   style: TextStyle(
                       fontSize: 16, fontWeight: FontWeight.bold)),
             ),

@@ -73,14 +73,19 @@ class _PaywallScreenState extends State<PaywallScreen> {
       _isLoading = true;
       _error = null;
     });
-    final errorCode = await context.read<SubscriptionService>().purchase();
-    if (!mounted) return;
-    if (errorCode == null) {
-      Navigator.of(context).pop(true);
-    } else {
-      setState(() => _error = _purchaseErrorMessage(errorCode));
+    try {
+      final errorCode = await context.read<SubscriptionService>().purchase();
+      if (!mounted) return;
+      if (errorCode == null) {
+        Navigator.of(context).pop(true);
+      } else {
+        setState(() => _error = _purchaseErrorMessage(errorCode));
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = _s.purchaseErrorUnknown);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-    setState(() => _isLoading = false);
   }
 
   Future<void> _restore() async {
@@ -88,17 +93,22 @@ class _PaywallScreenState extends State<PaywallScreen> {
       _isLoading = true;
       _error = null;
     });
-    final service = context.read<SubscriptionService>();
-    final errorCode = await service.restorePurchases();
-    if (!mounted) return;
-    if (errorCode != null) {
-      setState(() => _error = _restoreErrorMessage(errorCode));
-    } else if (service.isPremium) {
-      Navigator.of(context).pop(true);
-    } else {
-      setState(() => _error = _s.restoreNotFound);
+    try {
+      final service = context.read<SubscriptionService>();
+      final errorCode = await service.restorePurchases();
+      if (!mounted) return;
+      if (errorCode != null) {
+        setState(() => _error = _restoreErrorMessage(errorCode));
+      } else if (service.isPremium) {
+        Navigator.of(context).pop(true);
+      } else {
+        setState(() => _error = _s.restoreNotFound);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = _s.restoreErrorUnknown);
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-    setState(() => _isLoading = false);
   }
 
   @override

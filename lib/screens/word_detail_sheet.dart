@@ -111,7 +111,9 @@ class _WordDetailSheetState extends State<WordDetailSheet> {
   Widget build(BuildContext context) {
     return SingleChildScrollView(
       padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom + 32,
+        bottom: MediaQuery.of(context).viewInsets.bottom +
+            MediaQuery.of(context).viewPadding.bottom +
+            32,
         left: 24,
         right: 24,
         top: 28,

@@ -160,6 +160,9 @@ class SubscriptionService extends ChangeNotifier {
         PurchasesErrorCode.productAlreadyPurchasedError => PurchaseErrorCode.alreadyOwned,
         _ => PurchaseErrorCode.unknown,
       };
+    } catch (e) {
+      debugPrint('Unexpected purchase error: $e');
+      return PurchaseErrorCode.unknown;
     }
   }
 
@@ -178,6 +181,9 @@ class SubscriptionService extends ChangeNotifier {
       return errorCode == PurchasesErrorCode.networkError
           ? PurchaseErrorCode.network
           : PurchaseErrorCode.unknown;
+    } catch (e) {
+      debugPrint('Unexpected restore error: $e');
+      return PurchaseErrorCode.unknown;
     }
   }
 
